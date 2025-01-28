@@ -222,7 +222,7 @@ BuildReleaseAndroid() {
   unzip android-ndk-r26b-linux.zip
   rm android-ndk-r26b-linux.zip
   OS_ARCHES=(amd64 arm64 386 arm)
-  CGO_ARGS=(x86_64-linux-android24-clang aarch64-linux-android24-clang i686-linux-android24-clang armv7a-linux-androideabi24-clang)
+  CGO_ARGS=(x86_64-linux-android21-clang aarch64-linux-android21-clang i686-linux-android16-clang armv7a-linux-androideabi16-clang)
   for i in "${!OS_ARCHES[@]}"; do
     os_arch=${OS_ARCHES[$i]}
     cgo_cc=$(realpath android-ndk-r26b/toolchains/llvm/prebuilt/linux-x86_64/bin/${CGO_ARGS[$i]})
