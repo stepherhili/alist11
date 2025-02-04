@@ -6,6 +6,6 @@ import (
 
 
 func main() {
-	os.Args = append(os.Args, "--server")
+	os.Args = append(os.Args, "server")
 	cmd.Execute()
 }
