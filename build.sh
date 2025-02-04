@@ -1,4 +1,4 @@
-appName="alist"
+appName="alist11"
 builtAt="$(date +'%F %T %z')"
 goVersion=$(go version | sed 's/go version //')
 gitAuthor="Xhofe <i@nn.ci>"
