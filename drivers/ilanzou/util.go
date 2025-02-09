@@ -73,6 +73,8 @@ func (d *ILanZou) request(pathname, method string, callback base.ReqCallback, pr
 		"Referer":         d.conf.site + "/",
 		"User-Agent":      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Edg/125.0.0.0",
 		"Accept-Encoding": "gzip, deflate, br, zstd",
+		"Accept-Language": "zh-CN",
+		
 	})
 
 	if callback != nil {
