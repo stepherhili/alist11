@@ -23,7 +23,10 @@ type Pan123LinkDir struct {
 	model.Storage
 	Addition
 }
-
+type ListArgs struct {
+    Limit      int64 // 每页的最大文件数
+    LastFileID int64 // 获取下一页数据时使用的最后文件 ID
+}
 func (d *Pan123LinkDir) Config() driver.Config {
 	return config
 }
@@ -70,13 +73,13 @@ func (d *Pan123LinkDir) Drop(ctx context.Context) error {
 }
 
 func (d *Pan123LinkDir) List(ctx context.Context, dir model.Obj, args model.ListArgs) ([]model.Obj, error) {
-    url := OpenAPIBaseURL + "/api/v2/file/list"
+    url := DIRVER_API + "/api/v2/file/list"
 
     // Prepare the request
     req := base.RestyClient.R().
         SetQueryParam("parentFileId", GetObjID(dir)).
-        SetQueryParam("limit", strconv.Itoa(args.Limit)).
-        SetQueryParam("lastFileId", strconv.FormatInt(args.LastFileID, 10)).
+        SetQueryParam("limit", strconv.Itoa(int(args.Limit))).           // 获取 Limit
+        SetQueryParam("lastFileId", strconv.FormatInt(args.LastFileID, 10)). // 获取 LastFileID
         SetHeader("Authorization", "Bearer "+d.access_token).
         SetHeader("Platform", "open_platform")
 
@@ -97,7 +100,7 @@ func (d *Pan123LinkDir) List(ctx context.Context, dir model.Obj, args model.List
     body := res.Body()
     bodyStruct := struct {
         Data struct {
-            FileList []File `json:"fileList"`
+            FileList []model.Obj `json:"fileList"`
         } `json:"data"`
     }{}
 
@@ -107,13 +110,7 @@ func (d *Pan123LinkDir) List(ctx context.Context, dir model.Obj, args model.List
         return nil, fmt.Errorf("failed to get dir: %w", err)
     }
 
-    // Convert file list to model.Obj
-    objs := make([]model.Obj, 0)
-    for _, file := range bodyStruct.Data.FileList {
-        objs = append(objs, &file)
-    }
-
-    return objs, nil
+    return bodyStruct.Data.FileList, nil
 }
 func (d *Pan123LinkDir) Link(ctx context.Context, file model.Obj, args model.LinkArgs) (*model.Link, error) {
 	protocol := "http"
