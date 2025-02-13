@@ -23,10 +23,7 @@ type Pan123LinkDir struct {
 	model.Storage
 	Addition
 }
-type ListArgs struct {
-    Limit      int64 // 每页的最大文件数
-    LastFileID int64 // 获取下一页数据时使用的最后文件 ID
-}
+
 func (d *Pan123LinkDir) Config() driver.Config {
 	return config
 }
@@ -72,31 +69,36 @@ func (d *Pan123LinkDir) Drop(ctx context.Context) error {
 	return nil
 }
 
+type ListArgs struct {
+    Limit      int64 // 每页的最大文件数
+    LastFileID int64 // 获取下一页数据时使用的最后文件 ID
+}
+
 func (d *Pan123LinkDir) List(ctx context.Context, dir model.Obj, args model.ListArgs) ([]model.Obj, error) {
     url := DIRVER_API + "/api/v2/file/list"
 
-    // Prepare the request
+    // 准备请求
     req := base.RestyClient.R().
         SetQueryParam("parentFileId", GetObjID(dir)).
-        SetQueryParam("limit", strconv.Itoa(int(args.Limit))).           // 获取 Limit
-        SetQueryParam("lastFileId", strconv.FormatInt(args.LastFileID, 10)). // 获取 LastFileID
+        SetQueryParam("limit", strconv.Itoa(int(args.Limit))). // 使用从 ListArgs 中获取的 Limit
+        SetQueryParam("lastFileId", strconv.FormatInt(args.LastFileID, 10)). // 使用从 ListArgs 中获取的 LastFileID
         SetHeader("Authorization", "Bearer "+d.access_token).
         SetHeader("Platform", "open_platform")
 
-    // Execute the request
+    // 执行请求
     res, err := req.Execute(http.MethodGet, url)
     if err != nil {
         log.Errorf("Failed to execute request: url=%s, headers=%v, error=%v", url, req.Header, err)
         return nil, fmt.Errorf("failed to get dir: %w", err)
     }
 
-    // Check HTTP status code
+    // 检查 HTTP 状态码
     if res.StatusCode() != http.StatusOK {
         log.Errorf("Unexpected status code: %d, response: %s", res.StatusCode(), string(res.Body()))
         return nil, fmt.Errorf("failed to get dir: unexpected status code %d", res.StatusCode())
     }
 
-    // Parse the response body
+    // 解析响应体
     body := res.Body()
     bodyStruct := struct {
         Data struct {
