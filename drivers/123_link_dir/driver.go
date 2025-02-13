@@ -245,7 +245,178 @@ func (d *Pan123LinkDir) Remove(ctx context.Context, obj model.Obj) error {
 }
 
 func (d *Pan123LinkDir) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) (model.Obj, error) {
-	return nil, errs.NotImplement
+	parentFileID := GetObjID(dstDir)
+	filename := stream.Name()
+	etag := stream.Hash().MD5 // assuming that etag (md5) is calculated previously
+	size := stream.Size()
+
+	// Step 1: Create File
+	createURL := DIRVER_API + "/upload/v1/file/create"
+	req := base.RestyClient.R().
+		SetBody(map[string]any{
+			"parentFileID": parentFileID,
+			"filename":     filename,
+			"etag":         etag,
+			"size":         size,
+			"duplicate":    1, // choose the strategy that suits your needs
+		}).
+		SetHeader("Authorization", "Bearer "+d.access_token).
+		SetHeader("Platform", "open_platform")
+
+	res, err := req.Execute(http.MethodPost, createURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create file: %w", err)
+	}
+
+	body := res.Body()
+	createResp := struct {
+		Data struct {
+			FileID     int    `json:"fileID"`
+			PreuploadID string `json:"preuploadID"`
+			Reuse      bool   `json:"reuse"`
+			SliceSize  int    `json:"sliceSize"`
+		} `json:"data"`
+	}{}
+	err = json.Unmarshal(body, &createResp)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse create file response: %w", err)
+	}
+
+	if createResp.Data.Reuse {
+		// File already exists (instant upload), return the file object
+		return &File{
+			FileId:   createResp.Data.FileID,
+			FileName: filename,
+			Size:     size,
+			MD5:      etag,
+		}, nil
+	}
+	
+	preuploadID := createResp.Data.PreuploadID
+	sliceSize := createResp.Data.SliceSize
+
+	// Step 2: Upload Parts
+	sliceNo := 1
+	for {
+		buf := make([]byte, sliceSize)
+		n, err := stream.Read(buf)
+		if err != nil && err != io.EOF {
+			return nil, fmt.Errorf("failed to read file slice: %w", err)
+		}
+
+		if n == 0 {
+			break // End of file stream
+		}
+		
+		// Get upload URL for each slice
+		uploadURLReq := base.RestyClient.R().
+			SetBody(map[string]any{
+				"preuploadID": preuploadID,
+				"sliceNo": sliceNo,
+			}).
+			SetHeader("Authorization", "Bearer "+d.access_token).
+			SetHeader("Platform", "open_platform")
+
+		uploadURLRes, err := uploadURLReq.Execute(http.MethodPost, DIRVER_API+"/upload/v1/file/get_upload_url")
+		if err != nil {
+			return nil, fmt.Errorf("failed to get upload URL: %w", err)
+		}
+
+		uploadURLResp := struct {
+			Data struct {
+				PresignedURL string `json:"presignedURL"`
+			} `json:"data"`
+		}{}
+		err = json.Unmarshal(uploadURLRes.Body(), &uploadURLResp)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse get upload URL response: %w", err)
+		}
+
+		// Upload the current slice
+		_, err = http.Post(uploadURLResp.Data.PresignedURL, "application/octet-stream", bytes.NewReader(buf[:n]))
+		if err != nil {
+			return nil, fmt.Errorf("failed to upload slice %d: %w", sliceNo, err)
+		}
+
+		sliceNo++
+	}
+
+	// Step 3: Complete Upload
+	completeReq := base.RestyClient.R().
+		SetBody(map[string]any{
+			"preuploadID": preuploadID,
+		}).
+		SetHeader("Authorization", "Bearer "+d.access_token).
+		SetHeader("Platform", "open_platform")
+
+	completeRes, err := completeReq.Execute(http.MethodPost, DIRVER_API + "/upload/v1/file/upload_complete")
+	if err != nil {
+		return nil, fmt.Errorf("failed to complete upload: %w", err)
+	}
+
+	completeBody := completeRes.Body()
+	completeResp := struct {
+		Data struct {
+			FileID   int  `json:"fileID"`
+			Async    bool `json:"async"`
+			Completed bool `json:"completed"`
+		} `json:"data"`
+	}{}
+	err = json.Unmarshal(completeBody, &completeResp)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse complete upload response: %w", err)
+	}
+
+	// Check if upload is completed or needs async polling
+	if completeResp.Data.Completed {
+		return &File{
+			FileId:   completeResp.Data.FileID,
+			FileName: filename,
+			Size:     size,
+			MD5:      etag,
+		}, nil
+	}
+
+	// Step 4: Async Polling if needed (optional, if async)
+	for completeResp.Data.Async && !completeResp.Data.Completed {
+		// Add delay between polling
+		time.Sleep(time.Second)
+
+		asyncReq := base.RestyClient.R().
+			SetBody(map[string]any{
+				"preuploadID": preuploadID,
+			}).
+			SetHeader("Authorization", "Bearer "+d.access_token).
+			SetHeader("Platform", "open_platform")
+
+		asyncRes, err := asyncReq.Execute(http.MethodPost, DIRVER_API + "/upload/v1/file/upload_async_result")
+		if err != nil {
+			return nil, fmt.Errorf("failed to get async result: %w", err)
+		}
+
+		asyncResp := struct {
+			Data struct {
+				Completed bool `json:"completed"`
+				FileID   int  `json:"fileID"`
+			} `json:"data"`
+		}{}
+
+		err = json.Unmarshal(asyncRes.Body(), &asyncResp)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse async result response: %w", err)
+		}
+
+		if asyncResp.Data.Completed {
+			return &File{
+				FileId:   asyncResp.Data.FileID,
+				FileName: filename,
+				Size:     size,
+				MD5:      etag,
+			}, nil
+		}
+	}
+
+	return nil, fmt.Errorf("upload could not be completed")
 }
 
 var _ driver.Driver = (*Pan123LinkDir)(nil)
