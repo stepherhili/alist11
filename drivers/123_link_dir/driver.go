@@ -67,6 +67,7 @@ func (d *Pan123LinkDir) Drop(ctx context.Context) error {
 }
 
 // Helper function: Split path and fetch parentFileId hierarchically
+// Helper function: Split path and fetch parentFileId hierarchically
 func (d *Pan123LinkDir) getParentFileIdFromPath(ctx context.Context, path string) (int, error) {
 	// Split the path
 	paths := strings.Split(strings.Trim(path, "/"), "/")
@@ -91,6 +92,9 @@ func (d *Pan123LinkDir) getParentFileIdFromPath(ctx context.Context, path string
 		}
 
 		body := res.Body()
+		fmt.Printf("DEBUG: Fetching folder list for parentFileId=%d, folderName=%s\n", currentParentFileId, folderName)
+		fmt.Printf("DEBUG: API Response: %s\n", string(body))
+
 		bodyStruct := struct {
 			Data struct {
 				FileList []struct {
@@ -109,6 +113,7 @@ func (d *Pan123LinkDir) getParentFileIdFromPath(ctx context.Context, path string
 		// Find the folder with the given name
 		found := false
 		for _, file := range bodyStruct.Data.FileList {
+			fmt.Printf("DEBUG: Comparing %s with %s\n", folderName, file.FileName)
 			if file.FileName == folderName {
 				currentParentFileId = file.FileId
 				found = true
@@ -123,7 +128,6 @@ func (d *Pan123LinkDir) getParentFileIdFromPath(ctx context.Context, path string
 
 	return currentParentFileId, nil
 }
-
 // Modify List method to allow path-based directory listing by resolving parentFileId
 func (d *Pan123LinkDir) List(ctx context.Context, dir model.Obj, args model.ListArgs) ([]model.Obj, error) {
 	parentFileId, err := d.getParentFileIdFromPath(ctx, dir.GetPath())
