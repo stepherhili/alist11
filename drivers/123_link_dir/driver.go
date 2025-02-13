@@ -51,14 +51,18 @@ func (d *Pan123LinkDir) Init(ctx context.Context) error {
 			AccessToken string `json:"accessToken"`
 		} `json:"data"`
 	}{}
-
+        
 	err = json.Unmarshal(body, &resStruct)
 	if err != nil {
 		return err
 	}
 
 	d.access_token = resStruct.Data.AccessToken
-
+        if d.RootFolderID > 0 {
+		fmt.Printf("DEBUG: Setting RootFolderID = %d\n", d.RootFolderID)
+	} else {
+		d.RootFolderID = 0
+	}
 	return nil
 }
 
