@@ -70,54 +70,100 @@ func (d *Pan123LinkDir) Drop(ctx context.Context) error {
 }
 
 func (d *Pan123LinkDir) List(ctx context.Context, dir model.Obj, args model.ListArgs) ([]model.Obj, error) {
-    var objs []model.Obj
-    var currentDir model.Obj = dir
+	rootFolderID := strconv.Itoa(d.Addition.RootFolderID)
 
-    // 递归查找父级目录直到根目录
-    for {
-        // 获取当前目录的 parentID
-        parentFileID := getParentFileID(currentDir)
-        
-        // 如果已经到达根目录，则退出循环
-        if parentFileID == "0" {
-            break
-        }
+	// 递归获取目标目录的 parentFileId
+	parentFileId, err := d.getParentFileId(ctx, dir.GetID(), rootFolderID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get parent file ID: %w", err)
+	}
 
-        // 请求当前目录的文件列表
-        url := OpenAPIBaseURL + "/api/v2/file/list"
-        req := base.RestyClient.R().
-            SetQueryParam("parentFileId", parentFileID).
-            SetQueryParam("limit", "100").
-            SetHeader("Authorization", "Bearer "+d.access_token).
-            SetHeader("Platform", "open_platform")
+	// 获取文件列表
+	files, err := d.getFileList(ctx, parentFileId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get file list: %w", err)
+	}
 
-        res, err := req.Execute(http.MethodGet, url)
-        if err != nil {
-            return nil, fmt.Errorf("failed to get directory: %w", err)
-        }
-
-        body := res.Body()
-        bodyStruct := struct {
-            Data struct {
-                FileList []File `json:"fileList"`
-            } `json:"data"`
-        }{}
-
-        err = json.Unmarshal(body, &bodyStruct)
-        if err != nil {
-            return nil, fmt.Errorf("failed to unmarshal directory objects: %w", err)
-        }
-
-        // 将获取的文件列表添加到输出中
-        objs = append(objs, bodyStruct.Data.FileList...)
-        
-        // 移动到当前目录的上一级
-        // 这里需要实现的逻辑是设定 currentDir 为其父目录对象
-        currentDir = getDirByID(parentFileID) // 需要根据 ID 获取 model.Obj 实例
-    }
-
-    return objs, nil
+	// 转换文件列表为 []model.Obj
+	return utils.SliceConvert(files, func(src File) (model.Obj, error) {
+		return src, nil
+	})
 }
+
+// getParentFileId 递归获取指定目录的 parentFileId
+func (d *Pan123LinkDir) getParentFileId(ctx context.Context, currentFileId string, rootFolderID string) (string, error) {
+	fileInfo, err := d.getFileInfo(ctx, currentFileId)
+	if err != nil {
+		return "", fmt.Errorf("could not get file info for ID %s: %w", currentFileId, err)
+	}
+
+	// 检查是否到达根目录
+	if strconv.Itoa(fileInfo.ParentFileId) == rootFolderID {
+		return currentFileId, nil // 返回当前文件 ID
+	}
+
+	// 递归查找父级目录
+	return d.getParentFileId(ctx, strconv.Itoa(fileInfo.ParentFileId), rootFolderID)
+}
+
+// getFileInfo 获取指定 ID 文件的信息
+func (d *Pan123LinkDir) getFileInfo(ctx context.Context, fileId string) (File, error) {
+	var resp FileResponse
+	_res, err := d.Request(fmt.Sprintf("/api/v2/file/get?id=%s", fileId), http.MethodGet, func(req *resty.Request) {
+		req.SetHeader("Authorization", "Bearer "+d.access_token)
+		req.SetHeader("Platform", "open_platform")
+	})
+
+	if err != nil {
+		return File{}, fmt.Errorf("request failed: %w", err)
+	}
+
+	if err := json.Unmarshal(_res.Body(), &resp); err != nil {
+		return File{}, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	return resp.Data, nil
+}
+
+// getFileList 根据 parentFileId 获取文件列表
+func (d *Pan123LinkDir) getFileList(ctx context.Context, parentFileId string) ([]File, error) {
+	var res []File
+	page := 1
+
+	for {
+		if err := d.APIRateLimit(ctx, FileList); err != nil {
+			return nil, fmt.Errorf("rate limit exceeded: %w", err)
+		}
+
+		var resp Files
+		query := map[string]string{
+			"parentFileId": parentFileId,
+			"limit":        "100", // 每页文件数量，最大不超过100
+		}
+
+		_res, err := d.Request("/api/v2/file/list", http.MethodGet, func(req *resty.Request) {
+			req.SetHeader("Authorization", "Bearer "+d.access_token)
+			req.SetHeader("Platform", "open_platform")
+			req.SetQueryParams(query)
+		}, &resp)
+
+		if err != nil {
+			return nil, fmt.Errorf("request for file list failed: %w", err)
+		}
+
+		res = append(res, resp.Data.InfoList...)
+
+		if len(resp.Data.InfoList) == 0 {
+			break // 没有更多文件，退出循环
+		}
+
+		page++ // 下一页
+	}
+
+	return res, nil
+}
+
+
 
 func (d *Pan123LinkDir) MakeDir(ctx context.Context, parentDir model.Obj, dirName string) (model.Obj, error) {
 	parentFileID := getParentFileID(parentDir)
