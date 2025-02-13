@@ -83,7 +83,7 @@ func (d *Pan123LinkDir) List(ctx context.Context, dir model.Obj, args model.List
     // Execute the request
     res, err := req.Execute(http.MethodGet, url)
     if err != nil {
-        log.Errorf("Failed to execute request: %s, error: %v", req.String(), err)
+        log.Errorf("Failed to execute request: url=%s, headers=%v, error=%v", url, req.Header, err)
         return nil, fmt.Errorf("failed to get dir: %w", err)
     }
 
