@@ -70,38 +70,53 @@ func (d *Pan123LinkDir) Drop(ctx context.Context) error {
 }
 
 func (d *Pan123LinkDir) List(ctx context.Context, dir model.Obj, args model.ListArgs) ([]model.Obj, error) {
-	url := OpenAPIBaseURL + "/api/v2/file/list"
-	parentFileID := getParentFileID(dir)
+    var objs []model.Obj
+    var currentDir model.Obj = dir
 
-	req := base.RestyClient.R().
-		SetQueryParam("parentFileId", parentFileID).
-		SetQueryParam("limit", "100").
-		SetHeader("Authorization", "Bearer "+d.access_token).
-		SetHeader("Platform", "open_platform")
+    // 递归查找父级目录直到根目录
+    for {
+        // 获取当前目录的 parentID
+        parentFileID := getParentFileID(currentDir)
+        
+        // 如果已经到达根目录，则退出循环
+        if parentFileID == "0" {
+            break
+        }
 
-	res, err := req.Execute(http.MethodGet, url)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get directory: %w", err)
-	}
+        // 请求当前目录的文件列表
+        url := OpenAPIBaseURL + "/api/v2/file/list"
+        req := base.RestyClient.R().
+            SetQueryParam("parentFileId", parentFileID).
+            SetQueryParam("limit", "100").
+            SetHeader("Authorization", "Bearer "+d.access_token).
+            SetHeader("Platform", "open_platform")
 
-	body := res.Body()
-	bodyStruct := struct {
-		Data struct {
-			FileList []File `json:"fileList"`
-		} `json:"data"`
-	}{}
+        res, err := req.Execute(http.MethodGet, url)
+        if err != nil {
+            return nil, fmt.Errorf("failed to get directory: %w", err)
+        }
 
-	err = json.Unmarshal(body, &bodyStruct)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal directory objects: %w", err)
-	}
+        body := res.Body()
+        bodyStruct := struct {
+            Data struct {
+                FileList []File `json:"fileList"`
+            } `json:"data"`
+        }{}
 
-	objs := make([]model.Obj, 0)
-	for _, file := range bodyStruct.Data.FileList {
-		objs = append(objs, &file)
-	}
+        err = json.Unmarshal(body, &bodyStruct)
+        if err != nil {
+            return nil, fmt.Errorf("failed to unmarshal directory objects: %w", err)
+        }
 
-	return objs, nil
+        // 将获取的文件列表添加到输出中
+        objs = append(objs, bodyStruct.Data.FileList...)
+        
+        // 移动到当前目录的上一级
+        // 这里需要实现的逻辑是设定 currentDir 为其父目录对象
+        currentDir = getDirByID(parentFileID) // 需要根据 ID 获取 model.Obj 实例
+    }
+
+    return objs, nil
 }
 
 func (d *Pan123LinkDir) MakeDir(ctx context.Context, parentDir model.Obj, dirName string) (model.Obj, error) {
