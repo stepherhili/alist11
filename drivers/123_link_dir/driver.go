@@ -69,39 +69,51 @@ func (d *Pan123LinkDir) Drop(ctx context.Context) error {
 }
 
 func (d *Pan123LinkDir) List(ctx context.Context, dir model.Obj, args model.ListArgs) ([]model.Obj, error) {
-	url := OpenAPIBaseURL + "/api/v2/file/list"
+    url := OpenAPIBaseURL + "/api/v2/file/list"
 
-	req := base.RestyClient.R().
-		SetQueryParam("parentFileId", GetObjID(dir)).
-		SetQueryParam("limit", "100").
-		SetHeader("Authorization", "Bearer "+d.access_token).
-		SetHeader("Platform", "open_platform")
+    // Prepare the request
+    req := base.RestyClient.R().
+        SetQueryParam("parentFileId", GetObjID(dir)).
+        SetQueryParam("limit", strconv.Itoa(args.Limit)).
+        SetQueryParam("lastFileId", strconv.FormatInt(args.LastFileID, 10)).
+        SetHeader("Authorization", "Bearer "+d.access_token).
+        SetHeader("Platform", "open_platform")
 
-	res, err := req.Execute(http.MethodGet, url)
-	if err != nil {
-		return nil, err
-	}
+    // Execute the request
+    res, err := req.Execute(http.MethodGet, url)
+    if err != nil {
+        log.Errorf("Failed to execute request: %s, error: %v", req.String(), err)
+        return nil, fmt.Errorf("failed to get dir: %w", err)
+    }
 
-	body := res.Body()
-	bodyStruct := struct {
-		Data struct {
-			FileList []File `json:"fileList"`
-		} `json:"data"`
-	}{}
+    // Check HTTP status code
+    if res.StatusCode() != http.StatusOK {
+        log.Errorf("Unexpected status code: %d, response: %s", res.StatusCode(), string(res.Body()))
+        return nil, fmt.Errorf("failed to get dir: unexpected status code %d", res.StatusCode())
+    }
 
-	err = json.Unmarshal(body, &bodyStruct)
-	if err != nil {
-		return nil, err
-	}
+    // Parse the response body
+    body := res.Body()
+    bodyStruct := struct {
+        Data struct {
+            FileList []File `json:"fileList"`
+        } `json:"data"`
+    }{}
 
-	objs := make([]model.Obj, 0)
-	for _, file := range bodyStruct.Data.FileList {
-		objs = append(objs, &file)
-	}
+    err = json.Unmarshal(body, &bodyStruct)
+    if err != nil {
+        log.Errorf("Failed to parse response body, error: %v, response: %s", err, string(body))
+        return nil, fmt.Errorf("failed to get dir: %w", err)
+    }
 
-	return objs, nil
+    // Convert file list to model.Obj
+    objs := make([]model.Obj, 0)
+    for _, file := range bodyStruct.Data.FileList {
+        objs = append(objs, &file)
+    }
+
+    return objs, nil
 }
-
 func (d *Pan123LinkDir) Link(ctx context.Context, file model.Obj, args model.LinkArgs) (*model.Link, error) {
 	protocol := "http"
 	if d.EnableHTTPS {
