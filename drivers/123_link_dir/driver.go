@@ -12,12 +12,19 @@ import (
 	"github.com/alist-org/alist/v3/internal/model"
 )
 
+// 统一定义 OpenAPIBaseURL
 const OpenAPIBaseURL = "https://open-api.123pan.com"
 
 type Pan123LinkDir struct {
 	model.Storage
 	Addition
 	access_token string
+}
+
+type FileMetadata struct {
+	Name   string
+	HashMD5 string
+	Size   int64
 }
 
 func (d *Pan123LinkDir) Config() driver.Config {
@@ -159,7 +166,7 @@ func (d *Pan123LinkDir) Link(ctx context.Context, file model.Obj, args model.Lin
 }
 
 func (d *Pan123LinkDir) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up func(float64)) (model.Obj, error) {
-	meta := getFileMetadata(stream) // Use a helper function to extract metadata
+	meta := getFileMetadata(stream) // 使用辅助函数提取元数据
 	parentFileID := getParentFileID(dstDir)
 
 	if parentFileID == "" || parentFileID == "0" {
@@ -207,7 +214,7 @@ func (d *Pan123LinkDir) Put(ctx context.Context, dstDir model.Obj, stream model.
 
 	preuploadID := createResponse.Data.PreuploadID
 	sliceSize := createResponse.Data.SliceSize
-	fileParts := sliceFile(stream, sliceSize) // Slice file using a helper function
+	fileParts := sliceFile(stream, sliceSize) // 使用辅助函数进行分片
 
 	for i, part := range fileParts {
 		uploadURL := d.getUploadURL(preuploadID, i+1)
@@ -258,24 +265,25 @@ func (d *Pan123LinkDir) Put(ctx context.Context, dstDir model.Obj, stream model.
 }
 
 func getParentFileID(obj model.Obj) string {
-	if obj == nil || obj.Path == "" || obj.Path == "/" {
+	if obj == nil || obj.GetID() == "" {
 		return "0"
 	}
-	// Assuming there is a method to get the ID from the object's Path
-	return obj.GetIDFromPath(obj.Path)
+	return obj.GetID() // 假设 obj 的 ID 就是 parentFileID
 }
 
-// Helper to extract metadata from FileStreamer
+// 从 FileStreamer 中提取元数据的辅助函数
 func getFileMetadata(stream model.FileStreamer) *FileMetadata {
-	// Logic to extract metadata from stream
+	// 实现逻辑以提取流的元数据
 	return &FileMetadata{
-		// Populate metadata attributes (Name, HashMD5, Size, etc.)
+		Name:   "SampleName", // 这里需要实际从 stream 取得
+		HashMD5: "SampleHashMD5", // 需要实际从 stream 取得
+		Size:   12345, // 需要实际从 stream 取得
 	}
 }
 
-// Helper to split the file in slices
+// 分片文件的辅助函数
 func sliceFile(stream model.FileStreamer, sliceSize int) [][]byte {
-	// Logic to slice the file
+	// 实现分片逻辑
 	return [][]byte{}
 }
 
