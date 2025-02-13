@@ -69,10 +69,7 @@ func (d *Pan123LinkDir) Drop(ctx context.Context) error {
 	return nil
 }
 
-type ListArgs struct {
-    Limit      int64 // 每页的最大文件数
-    LastFileID int64 // 获取下一页数据时使用的最后文件 ID
-}
+
 
 func (d *Pan123LinkDir) List(ctx context.Context, dir model.Obj, args model.ListArgs) ([]model.Obj, error) {
     url := DIRVER_API + "/api/v2/file/list"
@@ -80,9 +77,8 @@ func (d *Pan123LinkDir) List(ctx context.Context, dir model.Obj, args model.List
     // 准备请求
     req := base.RestyClient.R().
         SetQueryParam("parentFileId", GetObjID(dir)).
-        SetQueryParam("limit", strconv.Itoa(int(args.Limit))). // 使用从 ListArgs 中获取的 Limit
-        SetQueryParam("lastFileId", strconv.FormatInt(args.LastFileID, 10)). // 使用从 ListArgs 中获取的 LastFileID
-        SetHeader("Authorization", "Bearer "+d.access_token).
+        SetQueryParam("limit", strconv.Itoa(int(limit))).          // 直接使用 limit 参数
+        SetQueryParam("lastFileId", strconv.FormatInt(lastFileID, 10)). // 直接使用 lastFileID 参数        SetHeader("Authorization", "Bearer "+d.access_token).
         SetHeader("Platform", "open_platform")
 
     // 执行请求
