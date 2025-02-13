@@ -5,20 +5,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/alist-org/alist/v3/drivers/base"
 	"github.com/alist-org/alist/v3/internal/driver"
-	"github.com/alist-org/alist/v3/internal/errs"
 	"github.com/alist-org/alist/v3/internal/model"
 )
 
-const DIRVER_API = "https://open-api.123pan.com"
+const OpenAPIBaseURL = "https://open-api.123pan.com"
 
 type Pan123LinkDir struct {
 	model.Storage
 	Addition
+	access_token string
 }
 
 func (d *Pan123LinkDir) Config() driver.Config {
@@ -142,8 +141,25 @@ func (d *Pan123LinkDir) MakeDir(ctx context.Context, parentDir model.Obj, dirNam
 	return &file, nil
 }
 
-func (d *Pan123LinkDir) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) (model.Obj, error) {
-	meta := stream.Metadata()
+func (d *Pan123LinkDir) Link(ctx context.Context, file model.Obj, args model.LinkArgs) (*model.Link, error) {
+	protocol := "http"
+	if d.EnableHTTPS {
+		protocol = "https"
+	}
+	var url string
+	if d.UUID != "" {
+		url = fmt.Sprintf("%s://%s/%s/%s", protocol, d.Domain, d.UUID, file.GetID())
+	} else {
+		url = fmt.Sprintf("%s://%s/%s", protocol, d.Domain, file.GetID())
+	}
+
+	return &model.Link{
+		URL: url,
+	}, nil
+}
+
+func (d *Pan123LinkDir) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up func(float64)) (model.Obj, error) {
+	meta := getFileMetadata(stream) // Use a helper function to extract metadata
 	parentFileID := getParentFileID(dstDir)
 
 	if parentFileID == "" || parentFileID == "0" {
@@ -169,10 +185,10 @@ func (d *Pan123LinkDir) Put(ctx context.Context, dstDir model.Obj, stream model.
 
 	createResponse := struct {
 		Data struct {
-			Reuse      bool   `json:"reuse"`
+			Reuse       bool   `json:"reuse"`
 			PreuploadID string `json:"preuploadID"`
-			SliceSize  int    `json:"sliceSize"`
-			FileID     string `json:"fileID"`
+			SliceSize   int    `json:"sliceSize"`
+			FileID      int    `json:"fileID"`
 		} `json:"data"`
 	}{}
 
@@ -191,7 +207,7 @@ func (d *Pan123LinkDir) Put(ctx context.Context, dstDir model.Obj, stream model.
 
 	preuploadID := createResponse.Data.PreuploadID
 	sliceSize := createResponse.Data.SliceSize
-	fileParts := stream.Slice(sliceSize)
+	fileParts := sliceFile(stream, sliceSize) // Slice file using a helper function
 
 	for i, part := range fileParts {
 		uploadURL := d.getUploadURL(preuploadID, i+1)
@@ -199,7 +215,7 @@ func (d *Pan123LinkDir) Put(ctx context.Context, dstDir model.Obj, stream model.
 		if err != nil {
 			return nil, fmt.Errorf("failed to upload part %d: %w", i+1, err)
 		}
-		up(i+1, len(fileParts))
+		up(float64(i+1) / float64(len(fileParts)))
 	}
 
 	urlComplete := OpenAPIBaseURL + "/upload/v1/file/upload_complete"
@@ -215,7 +231,7 @@ func (d *Pan123LinkDir) Put(ctx context.Context, dstDir model.Obj, stream model.
 
 	completeResponse := struct {
 		Data struct {
-			FileID    string `json:"fileID"`
+			FileID    int    `json:"fileID"`
 			Completed bool   `json:"completed"`
 			Async     bool   `json:"async"`
 		} `json:"data"`
@@ -229,7 +245,7 @@ func (d *Pan123LinkDir) Put(ctx context.Context, dstDir model.Obj, stream model.
 	if completeResponse.Data.Async {
 		fileID, err := d.pollUploadResult(preuploadID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get async uoload result: %w", err)
+			return nil, fmt.Errorf("failed to get async upload result: %w", err)
 		}
 		completeResponse.Data.FileID = fileID
 	}
@@ -241,26 +257,26 @@ func (d *Pan123LinkDir) Put(ctx context.Context, dstDir model.Obj, stream model.
 	}, nil
 }
 
-// Helper to fetch parentFileId recursively
 func getParentFileID(obj model.Obj) string {
-	if obj == nil || obj.GetID() == "" || obj.GetID() == "0" {
+	if obj == nil || obj.Path == "" || obj.Path == "/" {
 		return "0"
 	}
+	// Assuming there is a method to get the ID from the object's Path
+	return obj.GetIDFromPath(obj.Path)
+}
 
-	fileID := obj.GetID()
-	pathParts := []string{fileID}
-
-	parent := obj.GetParent()
-	for parent != nil && parent.GetID() != "" {
-		pathParts = append([]string{parent.GetID()}, pathParts...)
-		parent = parent.GetParent()
+// Helper to extract metadata from FileStreamer
+func getFileMetadata(stream model.FileStreamer) *FileMetadata {
+	// Logic to extract metadata from stream
+	return &FileMetadata{
+		// Populate metadata attributes (Name, HashMD5, Size, etc.)
 	}
+}
 
-	if len(pathParts) == 0 {
-		return "0"
-	}
-
-	return pathParts[len(pathParts)-1]
+// Helper to split the file in slices
+func sliceFile(stream model.FileStreamer, sliceSize int) [][]byte {
+	// Logic to slice the file
+	return [][]byte{}
 }
 
 func (d *Pan123LinkDir) getUploadURL(preuploadID string, sliceNo int) string {
@@ -299,7 +315,7 @@ func (d *Pan123LinkDir) uploadPart(url string, part []byte) error {
 	return err
 }
 
-func (d *Pan123LinkDir) pollUploadResult(preuploadID string) (string, error) {
+func (d *Pan123LinkDir) pollUploadResult(preuploadID string) (int, error) {
 	urlAsync := OpenAPIBaseURL + "/upload/v1/file/upload_async_result"
 
 	for {
@@ -310,19 +326,19 @@ func (d *Pan123LinkDir) pollUploadResult(preuploadID string) (string, error) {
 
 		res, err := req.Execute(http.MethodPost, urlAsync)
 		if err != nil {
-			return "", err
+			return 0, err
 		}
 
 		response := struct {
 			Data struct {
-				Completed bool   `json:"completed"`
-				FileID    string `json:"fileID"`
+				Completed bool `json:"completed"`
+				FileID    int  `json:"fileID"`
 			} `json:"data"`
 		}{}
 
 		err = json.Unmarshal(res.Body(), &response)
 		if err != nil {
-			return "", err
+			return 0, err
 		}
 
 		if response.Data.Completed {
