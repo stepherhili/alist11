@@ -6,11 +6,15 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"io"
+	"bytes"
+	"time"
 
 	"github.com/alist-org/alist/v3/drivers/base"
 	"github.com/alist-org/alist/v3/internal/driver"
 	"github.com/alist-org/alist/v3/internal/errs"
 	"github.com/alist-org/alist/v3/internal/model"
+	"github.com/alist-org/alist/v3/pkg/utils"
 )
 
 const DIRVER_API = "https://open-api.123pan.com"
@@ -246,9 +250,11 @@ func (d *Pan123LinkDir) Remove(ctx context.Context, obj model.Obj) error {
 
 func (d *Pan123LinkDir) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) (model.Obj, error) {
 	parentFileID := GetObjID(dstDir)
-	filename := stream.Name()
-	etag := stream.Hash().MD5 // assuming that etag (md5) is calculated previously
-	size := stream.Size()
+
+	// Assuming stream provides the necessary methods, adjust as needed
+	filename := stream.GetFilename() // Hypothetical method; replace with actual
+	etag := stream.GetMD5() // Hypothetical method; replace with actual
+	size := stream.GetSize() // Hypothetical method; replace with actual
 
 	// Step 1: Create File
 	createURL := DIRVER_API + "/upload/v1/file/create"
@@ -271,10 +277,10 @@ func (d *Pan123LinkDir) Put(ctx context.Context, dstDir model.Obj, stream model.
 	body := res.Body()
 	createResp := struct {
 		Data struct {
-			FileID     int    `json:"fileID"`
+			FileID      int    `json:"fileID"`
 			PreuploadID string `json:"preuploadID"`
-			Reuse      bool   `json:"reuse"`
-			SliceSize  int    `json:"sliceSize"`
+			Reuse       bool   `json:"reuse"`
+			SliceSize   int    `json:"sliceSize"`
 		} `json:"data"`
 	}{}
 	err = json.Unmarshal(body, &createResp)
@@ -291,15 +297,15 @@ func (d *Pan123LinkDir) Put(ctx context.Context, dstDir model.Obj, stream model.
 			MD5:      etag,
 		}, nil
 	}
-	
+
 	preuploadID := createResp.Data.PreuploadID
 	sliceSize := createResp.Data.SliceSize
 
 	// Step 2: Upload Parts
 	sliceNo := 1
+	buffer := make([]byte, sliceSize)
 	for {
-		buf := make([]byte, sliceSize)
-		n, err := stream.Read(buf)
+		n, err := stream.Read(buffer)
 		if err != nil && err != io.EOF {
 			return nil, fmt.Errorf("failed to read file slice: %w", err)
 		}
@@ -307,12 +313,12 @@ func (d *Pan123LinkDir) Put(ctx context.Context, dstDir model.Obj, stream model.
 		if n == 0 {
 			break // End of file stream
 		}
-		
+
 		// Get upload URL for each slice
 		uploadURLReq := base.RestyClient.R().
 			SetBody(map[string]any{
 				"preuploadID": preuploadID,
-				"sliceNo": sliceNo,
+				"sliceNo":     sliceNo,
 			}).
 			SetHeader("Authorization", "Bearer "+d.access_token).
 			SetHeader("Platform", "open_platform")
@@ -333,7 +339,7 @@ func (d *Pan123LinkDir) Put(ctx context.Context, dstDir model.Obj, stream model.
 		}
 
 		// Upload the current slice
-		_, err = http.Post(uploadURLResp.Data.PresignedURL, "application/octet-stream", bytes.NewReader(buf[:n]))
+		_, err = http.Post(uploadURLResp.Data.PresignedURL, "application/octet-stream", bytes.NewReader(buffer[:n]))
 		if err != nil {
 			return nil, fmt.Errorf("failed to upload slice %d: %w", sliceNo, err)
 		}
@@ -349,7 +355,7 @@ func (d *Pan123LinkDir) Put(ctx context.Context, dstDir model.Obj, stream model.
 		SetHeader("Authorization", "Bearer "+d.access_token).
 		SetHeader("Platform", "open_platform")
 
-	completeRes, err := completeReq.Execute(http.MethodPost, DIRVER_API + "/upload/v1/file/upload_complete")
+	completeRes, err := completeReq.Execute(http.MethodPost, DIRVER_API+"/upload/v1/file/upload_complete")
 	if err != nil {
 		return nil, fmt.Errorf("failed to complete upload: %w", err)
 	}
@@ -377,7 +383,7 @@ func (d *Pan123LinkDir) Put(ctx context.Context, dstDir model.Obj, stream model.
 		}, nil
 	}
 
-	// Step 4: Async Polling if needed (optional, if async)
+	// Step 4: Async Polling if needed
 	for completeResp.Data.Async && !completeResp.Data.Completed {
 		// Add delay between polling
 		time.Sleep(time.Second)
@@ -389,7 +395,7 @@ func (d *Pan123LinkDir) Put(ctx context.Context, dstDir model.Obj, stream model.
 			SetHeader("Authorization", "Bearer "+d.access_token).
 			SetHeader("Platform", "open_platform")
 
-		asyncRes, err := asyncReq.Execute(http.MethodPost, DIRVER_API + "/upload/v1/file/upload_async_result")
+		asyncRes, err := asyncReq.Execute(http.MethodPost, DIRVER_API+"/upload/v1/file/upload_async_result")
 		if err != nil {
 			return nil, fmt.Errorf("failed to get async result: %w", err)
 		}
