@@ -13,7 +13,7 @@ import (
 )
 
 // 统一定义 OpenAPIBaseURL
-const OpenAPIBaseURL = "https://open-api.123pan.com"
+//const OpenAPIBaseURL = "https://open-api.123pan.com"
 
 type Pan123LinkDir struct {
 	model.Storage
