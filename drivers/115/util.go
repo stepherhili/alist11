@@ -21,9 +21,9 @@ import (
 	"github.com/alist-org/alist/v3/pkg/utils"
 	"github.com/aliyun/aliyun-oss-go-sdk/oss"
 
-	cipher "github.com/SheltonZhu/115driver/pkg/crypto/ec115"
-	crypto "github.com/SheltonZhu/115driver/pkg/crypto/m115"
-	driver115 "github.com/SheltonZhu/115driver/pkg/driver"
+	cipher "github.com/pongfcnkl/115driver/pkg/crypto/ec115"
+	crypto "github.com/pongfcnkl/115driver/pkg/crypto/m115"
+	driver115 "github.com/pongfcnkl/115driver/pkg/driver"
 	"github.com/pkg/errors"
 )
 
