@@ -1,7 +1,6 @@
 package main
 
 import (
-	"os"
 	"github.com/alist-org/alist/v3/cmd"
 )
 
