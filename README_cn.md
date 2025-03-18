@@ -17,7 +17,7 @@
   <a title="Crowdin" target="_blank" href="https://crwd.in/alist">
     <img src="https://badges.crowdin.net/alist/localized.svg">
   </a>
-</div>
+</div>sssss
 <div>
   <a href="https://github.com/alist-org/alist/discussions">
     <img src="https://img.shields.io/github/discussions/Xhofe/alist?color=%23ED8936" alt="discussions" />
