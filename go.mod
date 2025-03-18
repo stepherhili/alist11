@@ -76,7 +76,7 @@ require (
 	golang.org/x/time v0.8.0
 	google.golang.org/appengine v1.6.8
 	gopkg.in/ldap.v3 v3.1.0
-	github.com/xhofe/115-sdk-go v0.1.1
+	github.com/xhofe/115-sdk-go v0.1.2
 	gorm.io/driver/mysql v1.5.7
 	gorm.io/driver/postgres v1.5.9
 	gorm.io/driver/sqlite v1.5.6
@@ -260,4 +260,3 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	lukechampine.com/blake3 v1.1.7 // indirect
 )
-replace github.com/xhofe/115-sdk-go v0.1.1 => github.com/pongfcnkl/115-sdk-go v0.1.1
