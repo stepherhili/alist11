@@ -260,4 +260,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	lukechampine.com/blake3 v1.1.7 // indirect
 )
-replace github.com/xhofe/115-sdk-go v0.1.2 => github.com/pongfcnkl/115-sdk-go v0.1.4
+replace github.com/xhofe/115-sdk-go v0.1.2 => github.com/pongfcnkl/115-sdk-go v0.1.5
