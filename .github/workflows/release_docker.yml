@@ -40,6 +40,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: 'stable'
+     
+      - name: Tidy Go modules
+        run: go mod tidy
 
       - name: Cache Musl
         id: cache-musl
