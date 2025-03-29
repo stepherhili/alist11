@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/alist-org/alist/v3/cmd/flags"
@@ -16,12 +17,14 @@ import (
 	"github.com/alist-org/alist/v3/internal/op"
 	"github.com/alist-org/alist/v3/pkg/utils"
 	sdk "github.com/xhofe/115-sdk-go"
+	"golang.org/x/time/rate"
 )
 
 type Open115 struct {
 	model.Storage
 	Addition
-	client *sdk.Client
+	client  *sdk.Client
+	limiter *rate.Limiter
 }
 
 func (d *Open115) Config() driver.Config {
@@ -43,9 +46,19 @@ func (d *Open115) Init(ctx context.Context) error {
 	if flags.Debug || flags.Dev {
 		d.client.SetDebug(true)
 	}
+	if d.Addition.LimitRate > 0 {
+		d.limiter = rate.NewLimiter(rate.Limit(d.Addition.LimitRate), 1)
+	}
 	_, err := d.client.UserInfo(ctx)
 	if err != nil {
 		return err
+	}
+	return nil
+}
+
+func (d *Open115) WaitLimit(ctx context.Context) error {
+	if d.limiter != nil {
+		return d.limiter.Wait(ctx)
 	}
 	return nil
 }
@@ -55,6 +68,9 @@ func (d *Open115) Drop(ctx context.Context) error {
 }
 
 func (d *Open115) List(ctx context.Context, dir model.Obj, args model.ListArgs) ([]model.Obj, error) {
+	if err := d.WaitLimit(ctx); err != nil {
+		return nil, err
+	}
 	var res []model.Obj
 	pageSize := int64(200)
 	offset := int64(0)
@@ -65,7 +81,6 @@ func (d *Open115) List(ctx context.Context, dir model.Obj, args model.ListArgs) 
 			Offset: offset,
 			ASC:    d.Addition.OrderDirection == "asc",
 			O:      d.Addition.OrderBy,
-			// Cur:     1,
 			ShowDir: true,
 		})
 		if err != nil {
@@ -84,6 +99,9 @@ func (d *Open115) List(ctx context.Context, dir model.Obj, args model.ListArgs) 
 }
 
 func (d *Open115) Link(ctx context.Context, file model.Obj, args model.LinkArgs) (*model.Link, error) {
+	if err := d.WaitLimit(ctx); err != nil {
+		return nil, err
+	}
 	var ua string
 	if args.Header != nil {
 		ua = args.Header.Get("User-Agent")
@@ -113,6 +131,9 @@ func (d *Open115) Link(ctx context.Context, file model.Obj, args model.LinkArgs)
 }
 
 func (d *Open115) MakeDir(ctx context.Context, parentDir model.Obj, dirName string) (model.Obj, error) {
+	if err := d.WaitLimit(ctx); err != nil {
+		return nil, err
+	}
 	resp, err := d.client.Mkdir(ctx, parentDir.GetID(), dirName)
 	if err != nil {
 		return nil, err
@@ -129,6 +150,9 @@ func (d *Open115) MakeDir(ctx context.Context, parentDir model.Obj, dirName stri
 }
 
 func (d *Open115) Move(ctx context.Context, srcObj, dstDir model.Obj) (model.Obj, error) {
+	if err := d.WaitLimit(ctx); err != nil {
+		return nil, err
+	}
 	_, err := d.client.Move(ctx, &sdk.MoveReq{
 		FileIDs: srcObj.GetID(),
 		ToCid:   dstDir.GetID(),
@@ -140,6 +164,9 @@ func (d *Open115) Move(ctx context.Context, srcObj, dstDir model.Obj) (model.Obj
 }
 
 func (d *Open115) Rename(ctx context.Context, srcObj model.Obj, newName string) (model.Obj, error) {
+	if err := d.WaitLimit(ctx); err != nil {
+		return nil, err
+	}
 	_, err := d.client.UpdateFile(ctx, &sdk.UpdateFileReq{
 		FileID:  srcObj.GetID(),
 		FileNma: newName,
@@ -155,6 +182,9 @@ func (d *Open115) Rename(ctx context.Context, srcObj model.Obj, newName string) 
 }
 
 func (d *Open115) Copy(ctx context.Context, srcObj, dstDir model.Obj) (model.Obj, error) {
+	if err := d.WaitLimit(ctx); err != nil {
+		return nil, err
+	}
 	_, err := d.client.Copy(ctx, &sdk.CopyReq{
 		PID:     dstDir.GetID(),
 		FileID:  srcObj.GetID(),
@@ -167,6 +197,9 @@ func (d *Open115) Copy(ctx context.Context, srcObj, dstDir model.Obj) (model.Obj
 }
 
 func (d *Open115) Remove(ctx context.Context, obj model.Obj) error {
+	if err := d.WaitLimit(ctx); err != nil {
+		return err
+	}
 	_obj, ok := obj.(*Obj)
 	if !ok {
 		return fmt.Errorf("can't convert obj")
@@ -182,6 +215,9 @@ func (d *Open115) Remove(ctx context.Context, obj model.Obj) error {
 }
 
 func (d *Open115) Put(ctx context.Context, dstDir model.Obj, file model.FileStreamer, up driver.UpdateProgress) error {
+	if err := d.WaitLimit(ctx); err != nil {
+		return err
+	}
 	tempF, err := file.CacheFullInTempFile()
 	if err != nil {
 		return err
