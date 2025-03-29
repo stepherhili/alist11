@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
+	//"sync"
 	"time"
 
 	"github.com/alist-org/alist/v3/cmd/flags"
