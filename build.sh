@@ -103,8 +103,8 @@ BuildWin7() {
   go build -o ./build/$appName-windows-win7-amd64.exe -ldflags="$ldflags" -tags=jsoniter .
   
   # Also build upx compressed version
-  cp ./build/$appName-windows-win7-amd64.exe ./build/$appName-windows-win7-amd64-upx.exe
-  upx -9 ./build/$appName-windows-win7-amd64-upx.exe
+#  cp ./build/$appName-windows-win7-amd64.exe ./build/$appName-windows-win7-amd64-upx.exe
+#  upx -9 ./build/$appName-windows-win7-amd64-upx.exe
   
   # Cleanup
   rm -rf go-win7 go-win7.zip
