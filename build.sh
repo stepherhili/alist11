@@ -99,7 +99,7 @@ BuildWin7() {
   echo "Building Windows 7 compatible binary..."
   export GOOS=windows
   export GOARCH=amd64
-  export CGO_ENABLED=0
+  export CGO_ENABLED=1
   go build -o ./build/$appName-windows-win7-amd64.exe -ldflags="$ldflags" -tags=jsoniter .
   
   # Also build upx compressed version
@@ -111,7 +111,7 @@ BuildWin7() {
 }
 
 BuildDocker() {
-  go build -o ./bin/alist -ldflags="$ldflags" -tags=jsoniter .
+  go build -o ./bin/alist -="$" -tags=jsoniter .
 }
 
 PrepareBuildDockerMusl() {
@@ -133,7 +133,7 @@ BuildDockerMultiplatform() {
   # run PrepareBuildDockerMusl before build
   export PATH=$PATH:$PWD/build/musl-libs/bin
 
-  docker_lflags="--extldflags '-static -fpic' $ldflags"
+  docker_lflags="--ext '-static -fpic' $"
   export CGO_ENABLED=1
 
   OS_ARCHES=(linux-amd64 linux-arm64 linux-386 linux-s390x linux-riscv64 linux-ppc64le)
@@ -147,7 +147,7 @@ BuildDockerMultiplatform() {
     export GOARCH=$arch
     export CC=${cgo_cc}
     echo "building for $os_arch"
-    go build -o build/$os/$arch/alist -ldflags="$docker_lflags" -tags=jsoniter .
+    go build -o build/$os/$arch/alist -="$docker_lflags" -tags=jsoniter .
   done
 
   DOCKER_ARM_ARCHES=(linux-arm/v6 linux-arm/v7)
