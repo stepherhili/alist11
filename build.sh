@@ -100,6 +100,9 @@ BuildWin7() {
   export GOOS=windows
   export GOARCH=amd64
   export CGO_ENABLED=1
+  export CC=/usr/bin/x86_64-w64-mingw32-gcc
+  echo "Using compiler: $CC"
+  echo "CGO_ENABLED: $CGO_ENABLED"
   go build -o ./build/$appName-windows-win7-amd64.exe -ldflags="$ldflags" -tags=jsoniter .
   
   # Also build upx compressed version
