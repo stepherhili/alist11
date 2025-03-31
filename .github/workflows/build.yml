@@ -51,7 +51,8 @@ jobs:
           bash build.sh release win7
           mkdir -p build
 
-      - name: Build        if: matrix.target != 'windows-win7-amd64'
+      - name: Build
+        if: matrix.target != 'windows-win7-amd64'
         uses: go-cross/cgo-actions@v1
         with:
           targets: ${{ matrix.target }}
