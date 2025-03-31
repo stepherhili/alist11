@@ -136,7 +136,7 @@ BuildDockerMultiplatform() {
   # run PrepareBuildDockerMusl before build
   export PATH=$PATH:$PWD/build/musl-libs/bin
 
-  docker_lflags="--ext '-static -fpic' $"
+  docker_lflags="-extldflags '-static -fpic' $ldflags"
   export CGO_ENABLED=1
 
   OS_ARCHES=(linux-amd64 linux-arm64 linux-386 linux-s390x linux-riscv64 linux-ppc64le)
@@ -150,7 +150,7 @@ BuildDockerMultiplatform() {
     export GOARCH=$arch
     export CC=${cgo_cc}
     echo "building for $os_arch"
-    go build -o build/$os/$arch/alist -="$docker_lflags" -tags=jsoniter .
+    go build -o build/$os/$arch/alist -ldflags="$docker_lflags" -tags=jsoniter .
   done
 
   DOCKER_ARM_ARCHES=(linux-arm/v6 linux-arm/v7)
