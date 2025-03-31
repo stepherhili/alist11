@@ -44,7 +44,11 @@ jobs:
         
       - name: Setup web
         run: bash build.sh dev web
-
+      - name: Install MinGW for Win7 build
+        if: matrix.target == 'windows-win7-amd64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-mingw-w64-x86-64
       - name: Build Win7 Binary
         if: matrix.target == 'windows-win7-amd64'
         run: |
