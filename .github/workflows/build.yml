@@ -54,6 +54,7 @@ jobs:
           cp ./build/alist-windows-win7-amd64-upx.exe ./build/alist-upx.exe
 
       - name: Build
+        if: matrix.target != 'windows-win7-amd64'
         uses: go-cross/cgo-actions@v1
         with:
           targets: ${{ matrix.target }}
