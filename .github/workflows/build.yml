@@ -23,6 +23,7 @@ jobs:
           - linux-amd64-musl
           - windows-arm64
           - android-arm64
+          - windows-win7-amd64
     name: Build
     runs-on: ${{ matrix.platform }}
     steps:
@@ -43,6 +44,14 @@ jobs:
         
       - name: Setup web
         run: bash build.sh dev web
+
+      - name: Build Win7 Binary
+        if: matrix.target == 'windows-win7-amd64'
+        run: |
+          bash build.sh release win7
+          mkdir -p build
+          cp ./build/alist-windows-win7-amd64.exe ./build/alist.exe
+          cp ./build/alist-windows-win7-amd64-upx.exe ./build/alist-upx.exe
 
       - name: Build
         uses: go-cross/cgo-actions@v1
