@@ -87,6 +87,29 @@ BuildDev() {
   cat md5.txt
 }
 
+BuildWin7() {
+  rm -rf .git/
+  mkdir -p "build"
+  echo "Downloading go-win7 patched version..."
+  curl -L https://github.com/XTLS/go-win7/releases/download/patched-1.24.1/go-for-win7-linux-amd64.zip -o go-win7.zip
+  unzip -q go-win7.zip -d go-win7
+  chmod +x go-win7/bin/go
+  export PATH=$PWD/go-win7/bin:$PATH
+  
+  echo "Building Windows 7 compatible binary..."
+  export GOOS=windows
+  export GOARCH=amd64
+  export CGO_ENABLED=0
+  go build -o ./build/$appName-windows-win7-amd64.exe -ldflags="$ldflags" -tags=jsoniter .
+  
+  # Also build upx compressed version
+  cp ./build/$appName-windows-win7-amd64.exe ./build/$appName-windows-win7-amd64-upx.exe
+  upx -9 ./build/$appName-windows-win7-amd64-upx.exe
+  
+  # Cleanup
+  rm -rf go-win7 go-win7.zip
+}
+
 BuildDocker() {
   go build -o ./bin/alist -ldflags="$ldflags" -tags=jsoniter .
 }
@@ -324,6 +347,9 @@ elif [ "$1" = "release" -o "$1" = "beta" ]; then
   elif [ "$2" = "freebsd" ]; then
     BuildReleaseFreeBSD
     MakeRelease "md5-freebsd.txt"
+  elif [ "$2" = "win7" ]; then
+    BuildWin7
+    MakeRelease "md5-win7.txt"
   elif [ "$2" = "web" ]; then
     echo "web only"
   else
