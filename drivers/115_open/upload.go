@@ -71,12 +71,6 @@ func (d *Open115) singleUpload(ctx context.Context, tempF model.File, tokenResp 
 func (d *Open115) multpartUpload(ctx context.Context, tempF model.File, stream model.FileStreamer, up driver.UpdateProgress, tokenResp *sdk.UploadGetTokenResp, initResp *sdk.UploadInitResp) error {
 	fileSize := stream.GetSize()
 	chunkSize := calPartSize(fileSize)
-
-        sha1, err := utils.CalculateFileSHA1(stream)
-        if err != nil {
-                return err
-        }
-
         
         newTokenResp, err := d.client.UploadGetToken(ctx)
         if err != nil {
