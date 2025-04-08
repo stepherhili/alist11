@@ -72,7 +72,18 @@ func (d *Open115) multpartUpload(ctx context.Context, tempF model.File, stream m
 	fileSize := stream.GetSize()
 	chunkSize := calPartSize(fileSize)
 
-	ossClient, err := oss.New(tokenResp.Endpoint, tokenResp.AccessKeyId, tokenResp.AccessKeySecret, oss.SecurityToken(tokenResp.SecurityToken))
+        sha1, err := utils.CalculateFileSHA1(stream)
+        if err != nil {
+                return err
+        }
+
+        
+        newTokenResp, err := d.client.UploadGetToken(ctx)
+        if err != nil {
+                return err
+        }
+
+	ossClient, err := oss.New(newTokenResp.Endpoint, newTokenResp.AccessKeyId, newTokenResp.AccessKeySecret, oss.SecurityToken(newTokenResp.SecurityToken))
 	if err != nil {
 		return err
 	}
