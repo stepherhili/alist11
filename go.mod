@@ -4,7 +4,6 @@ go 1.23
 
 toolchain go1.23.1
 
-require github.com/alist-org/alist/v3 v3.44.0
 
 require (
 	github.com/KirCute/ftpserverlib-pasvportmap v1.25.0
