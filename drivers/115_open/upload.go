@@ -69,8 +69,15 @@ func (d *Open115) singleUpload(ctx context.Context, tempF model.File, tokenResp 
 // }
 
 func (d *Open115) isTokenExpired(tokenResp *sdk.UploadGetTokenResp) bool {
+	// 解析过期时间字符串
+	expiration, err := time.Parse(time.RFC3339, tokenResp.Expiration)
+	if err != nil {
+		// 如果解析失败，保守起见认为token已过期
+		return true
+	}
+	// 在50分钟时刷新
 	expireTime := time.Now().Add(50 * time.Minute)
-	return tokenResp.Expiration.Before(expireTime)
+	return expiration.Before(expireTime)
 }
 
 func (d *Open115) refreshUploadToken(ctx context.Context) (*sdk.UploadGetTokenResp, error) {
