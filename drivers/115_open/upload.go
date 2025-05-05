@@ -76,7 +76,7 @@ func (d *Open115) isTokenExpired(tokenResp *sdk.UploadGetTokenResp) bool {
 		return true
 	}
 	// 在50分钟时刷新
-	expireTime := time.Now().Add(50 * time.Minute)
+	expireTime := time.Now().Add(5 * time.Minute)
 	return expiration.Before(expireTime)
 }
 
