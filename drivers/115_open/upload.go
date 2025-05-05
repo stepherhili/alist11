@@ -67,104 +67,103 @@ func (d *Open115) singleUpload(ctx context.Context, tempF model.File, tokenResp 
 // 		Cid      string `json:"cid"`
 // 	} `json:"data"`
 // }
+
 func (d *Open115) isTokenExpired(tokenResp *sdk.UploadGetTokenResp) bool {
-    expireTime := time.Now().Add(49 * time.Minute)
-    return tokenResp.Expiration.Before(expireTime)
+	expireTime := time.Now().Add(50 * time.Minute)
+	return tokenResp.Expiration.Before(expireTime)
 }
 
 func (d *Open115) refreshUploadToken(ctx context.Context) (*sdk.UploadGetTokenResp, error) {
-    return d.client.UploadGetToken(ctx)
+	return d.client.UploadGetToken(ctx)
 }
 
 func (d *Open115) multpartUpload(ctx context.Context, tempF model.File, stream model.FileStreamer, up driver.UpdateProgress, tokenResp *sdk.UploadGetTokenResp, initResp *sdk.UploadInitResp) error {
-    fileSize := stream.GetSize()
-    chunkSize := calPartSize(fileSize)
+	fileSize := stream.GetSize()
+	chunkSize := calPartSize(fileSize)
 
-    createOSSClient := func(token *sdk.UploadGetTokenResp) (*oss.Bucket, error) {
-        ossClient, err := oss.New(token.Endpoint, token.AccessKeyId, token.AccessKeySecret, oss.SecurityToken(token.SecurityToken))
-        if err != nil {
-            return nil, err
-        }
-        return ossClient.Bucket(initResp.Bucket)
-    }
+	createOSSClient := func(token *sdk.UploadGetTokenResp) (*oss.Bucket, error) {
+		ossClient, err := oss.New(token.Endpoint, token.AccessKeyId, token.AccessKeySecret, oss.SecurityToken(token.SecurityToken))
+		if err != nil {
+			return nil, err
+		}
+		return ossClient.Bucket(initResp.Bucket)
+	}
 
-    bucket, err := createOSSClient(tokenResp)
-    if err != nil {
-        return err
-    }
+	bucket, err := createOSSClient(tokenResp)
+	if err != nil {
+		return err
+	}
 
-    imur, err := bucket.InitiateMultipartUpload(initResp.Object, oss.Sequential())
-    if err != nil {
-        return err
-    }
+	imur, err := bucket.InitiateMultipartUpload(initResp.Object, oss.Sequential())
+	if err != nil {
+		return err
+	}
 
-    partNum := (stream.GetSize() + chunkSize - 1) / chunkSize
-    parts := make([]oss.UploadPart, partNum)
-    offset := int64(0)
+	partNum := (stream.GetSize() + chunkSize - 1) / chunkSize
+	parts := make([]oss.UploadPart, partNum)
+	offset := int64(0)
 
-    lastTokenCheck := time.Now()
+	lastTokenCheck := time.Now()
 
-    for i := int64(1); i <= partNum; i++ {
-        if utils.IsCanceled(ctx) {
-            return ctx.Err()
-        }
+	for i := int64(1); i <= partNum; i++ {
+		if utils.IsCanceled(ctx) {
+			return ctx.Err()
+		}
 
-        if time.Since(lastTokenCheck) > 5*time.Minute {
-            if d.isTokenExpired(tokenResp) {
-                newToken, err := d.refreshUploadToken(ctx)
-                if err != nil {
-                    return err
-                }
-                tokenResp = newToken
-                bucket, err = createOSSClient(tokenResp)
-                if err != nil {
-                    return err
-                }
-            }
-            lastTokenCheck = time.Now()
-        }
+		if time.Since(lastTokenCheck) > 5*time.Minute {
+			if d.isTokenExpired(tokenResp) {
+				newToken, err := d.refreshUploadToken(ctx)
+				if err != nil {
+					return err
+				}
+				tokenResp = newToken
+				bucket, err = createOSSClient(tokenResp)
+				if err != nil {
+					return err
+				}
+			}
+			lastTokenCheck = time.Now()
+		}
 
-        partSize := chunkSize
-        if i == partNum {
-            partSize = fileSize - (i-1)*chunkSize
-        }
-        rd := utils.NewMultiReadable(io.LimitReader(stream, partSize))
-        err = retry.Do(func() error {
-            _ = rd.Reset()
-            rateLimitedRd := driver.NewLimitedUploadStream(ctx, rd)
-            part, err := bucket.UploadPart(imur, rateLimitedRd, partSize, int(i))
-            if err != nil {
-                return err
-            }
-            parts[i-1] = part
-            return nil
-        },
-            retry.Attempts(3),
-            retry.DelayType(retry.BackOffDelay),
-            retry.Delay(time.Second))
-        if err != nil {
-            return err
-        }
+		partSize := chunkSize
+		if i == partNum {
+			partSize = fileSize - (i-1)*chunkSize
+		}
+		rd := utils.NewMultiReadable(io.LimitReader(stream, partSize))
+		err = retry.Do(func() error {
+			_ = rd.Reset()
+			rateLimitedRd := driver.NewLimitedUploadStream(ctx, rd)
+			part, err := bucket.UploadPart(imur, rateLimitedRd, partSize, int(i))
+			if err != nil {
+				return err
+			}
+			parts[i-1] = part
+			return nil
+		},
+			retry.Attempts(3),
+			retry.DelayType(retry.BackOffDelay),
+			retry.Delay(time.Second))
+		if err != nil {
+			return err
+		}
 
-        if i == partNum {
-            offset = fileSize
-        } else {
-            offset += partSize
-        }
-        up(float64(offset) / float64(fileSize))
-    }
+		if i == partNum {
+			offset = fileSize
+		} else {
+			offset += partSize
+		}
+		up(float64(offset) / float64(fileSize))
+	}
 
-    _, err = bucket.CompleteMultipartUpload(
-        imur,
-        parts,
-        oss.Callback(base64.StdEncoding.EncodeToString([]byte(initResp.Callback.Value.Callback))),
-        oss.CallbackVar(base64.StdEncoding.EncodeToString([]byte(initResp.Callback.Value.CallbackVar))),
-    )
-    if err != nil {
-        return err
-    }
+	_, err = bucket.CompleteMultipartUpload(
+		imur,
+		parts,
+		oss.Callback(base64.StdEncoding.EncodeToString([]byte(initResp.Callback.Value.Callback))),
+		oss.CallbackVar(base64.StdEncoding.EncodeToString([]byte(initResp.Callback.Value.CallbackVar))),
+	)
+	if err != nil {
+		return err
+	}
 
-    return nil
+	return nil
 }
-
-
