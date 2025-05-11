@@ -16,10 +16,12 @@ import (
 	"github.com/alist-org/alist/v3/internal/driver"
 	"github.com/alist-org/alist/v3/internal/errs"
 	"github.com/alist-org/alist/v3/internal/model"
-	"github.com/alist-org/alist/v3/pkg/http_range"
 	"github.com/alist-org/alist/v3/pkg/utils"
 	"github.com/go-resty/resty/v2"
 	log "github.com/sirupsen/logrus"
+	"github.com/tus/tusd/pkg/filestore"
+	"github.com/tus/tusd/pkg/handler"
+	"github.com/alist-org/alist/v3/pkg/http_range"
 )
 
 type QuarkOrUC struct {
@@ -82,46 +84,56 @@ func (d *QuarkOrUC) Link(ctx context.Context, file model.Obj, args model.LinkArg
 		start, end = parseRange[0].Start, parseRange[0].Start+parseRange[0].Length
 		link.Header.Set("Content-Range", parseRange[0].ContentRange(file.GetSize()))
 		link.Header.Set("Content-Length", strconv.FormatInt(parseRange[0].Length, 10))
-		link.Status = http.StatusPartialContent
 	} else {
 		link.Header.Set("Content-Length", strconv.FormatInt(file.GetSize(), 10))
-		link.Status = http.StatusOK
 	}
-	link.Writer = func(w io.Writer) error {
-		// request 10 MB at a time
-		chunkSize := int64(10 * 1024 * 1024)
-		for start < end {
-			_end := start + chunkSize
-			if _end > end {
-				_end = end
-			}
-			_range := "bytes=" + strconv.FormatInt(start, 10) + "-" + strconv.FormatInt(_end-1, 10)
-			start = _end
-			err = func() error {
-				req, err := http.NewRequest(http.MethodGet, u, nil)
-				if err != nil {
-					return err
+	
+	link.RangeReadCloser = &model.RangeReadCloser{
+		RangeReader: func(ctx context.Context, httpRange http_range.Range) (io.ReadCloser, error) {
+			// request 10 MB at a time
+			chunkSize := int64(10 * 1024 * 1024)
+			start := httpRange.Start
+			end := httpRange.Start + httpRange.Length
+			
+			pipeReader, pipeWriter := io.Pipe()
+			go func() {
+				defer pipeWriter.Close()
+				for start < end {
+					_end := start + chunkSize
+					if _end > end {
+						_end = end
+					}
+					_range := "bytes=" + strconv.FormatInt(start, 10) + "-" + strconv.FormatInt(_end-1, 10)
+					start = _end
+					
+					req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+					if err != nil {
+						pipeWriter.CloseWithError(err)
+						return
+					}
+					req.Header.Set("Range", _range)
+					req.Header.Set("User-Agent", ua)
+					req.Header.Set("Cookie", d.Cookie)
+					req.Header.Set("Referer", d.conf.referer)
+					resp, err := base.HttpClient.Do(req)
+					if err != nil {
+						pipeWriter.CloseWithError(err)
+						return
+					}
+					if resp.StatusCode != http.StatusPartialContent {
+						pipeWriter.CloseWithError(fmt.Errorf("unexpected status code: %d", resp.StatusCode))
+						return
+					}
+					_, err = io.Copy(pipeWriter, resp.Body)
+					resp.Body.Close()
+					if err != nil {
+						pipeWriter.CloseWithError(err)
+						return
+					}
 				}
-				req.Header.Set("Range", _range)
-				req.Header.Set("User-Agent", ua)
-				req.Header.Set("Cookie", d.Cookie)
-				req.Header.Set("Referer", d.conf.referer)
-				resp, err := base.HttpClient.Do(req)
-				if err != nil {
-					return err
-				}
-				defer resp.Body.Close()
-				if resp.StatusCode != http.StatusPartialContent {
-					return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-				}
-				_, err = io.Copy(w, resp.Body)
-				return err
 			}()
-			if err != nil {
-				return err
-			}
-		}
-		return nil
+			return pipeReader, nil
+		},
 	}
 	return &link, nil
 }
@@ -249,6 +261,7 @@ func (d *QuarkOrUC) Put(ctx context.Context, dstDir model.Obj, stream model.File
 		log.Debugf("left: %d", left)
 		reader := driver.NewLimitedUploadStream(ctx, bytes.NewReader(part))
 		m, err := d.upPart(ctx, pre, stream.GetMimetype(), partNumber, reader)
+		//m, err := driver.UpPart(pre, file.GetMIMEType(), partNumber, bytes, account, md5Str, sha1Str)
 		if err != nil {
 			return err
 		}
@@ -267,3 +280,26 @@ func (d *QuarkOrUC) Put(ctx context.Context, dstDir model.Obj, stream model.File
 }
 
 var _ driver.Driver = (*QuarkOrUC)(nil)
+
+// 添加任务队列管理器
+type DownloadTaskManager struct {
+	queue    chan *DownloadTask
+	maxConcurrent int
+}
+
+func NewDownloadTaskManager(maxConcurrent int) *DownloadTaskManager {
+	return &DownloadTaskManager{
+		queue: make(chan *DownloadTask, 100),  // 限制队列长度
+		maxConcurrent: maxConcurrent,
+	}
+}
+
+func (m *DownloadTaskManager) AddTask(task *DownloadTask) {
+	select {
+	case m.queue <- task:
+		// 任务已加入队列
+	default:
+		// 队列已满，拒绝新任务
+		task.SetError(errors.New("下载队列已满"))
+	}
+}
