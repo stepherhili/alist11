@@ -7,6 +7,7 @@ package webdav // import "golang.org/x/net/webdav"
 
 import (
 	"context"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"net/http"
