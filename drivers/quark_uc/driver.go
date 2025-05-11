@@ -17,6 +17,7 @@ import (
 	"github.com/alist-org/alist/v3/internal/driver"
 	"github.com/alist-org/alist/v3/internal/errs"
 	"github.com/alist-org/alist/v3/internal/model"
+	"github.com/alist-org/alist/v3/pkg/http_range"
 	"github.com/alist-org/alist/v3/pkg/utils"
 	"github.com/go-resty/resty/v2"
 	log "github.com/sirupsen/logrus"
@@ -78,7 +79,6 @@ func (d *QuarkOrUC) Link(ctx context.Context, file model.Obj, args model.LinkArg
 		if err != nil {
 			return nil, err
 		}
-		start, end := parseRange[0].Start, parseRange[0].Start+parseRange[0].Length
 		link.Header.Set("Content-Range", parseRange[0].ContentRange(file.GetSize()))
 		link.Header.Set("Content-Length", strconv.FormatInt(parseRange[0].Length, 10))
 	} else {
