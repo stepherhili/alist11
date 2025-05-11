@@ -54,29 +54,52 @@ func (d *QuarkOrUC) List(ctx context.Context, dir model.Obj, args model.ListArgs
 }
 
 func (d *QuarkOrUC) Link(ctx context.Context, file model.Obj, args model.LinkArgs) (*model.Link, error) {
-	data := base.Json{
-		"fids": []string{file.GetID()},
-	}
-	var resp DownResp
-	ua := d.conf.ua
-	_, err := d.request("/file/download", http.MethodPost, func(req *resty.Request) {
-		req.SetHeader("User-Agent", ua).
-			SetBody(data)
-	}, &resp)
-	if err != nil {
-		return nil, err
-	}
+    data := base.Json{
+        "fids": []string{file.GetID()},
+    }
+    var resp DownResp
+    ua := d.conf.ua
+    _, err := d.request("/file/download", http.MethodPost, func(req *resty.Request) {
+        req.SetHeader("User-Agent", ua).
+            SetBody(data)
+    }, &resp)
+    if err != nil {
+        return nil, err
+    }
 
-	return &model.Link{
-		URL: resp.Data[0].DownloadUrl,
-		Header: http.Header{
-			"Cookie":     []string{d.Cookie},
-			"Referer":    []string{d.conf.referer},
-			"User-Agent": []string{ua},
-		},
-		Concurrency: 2,
-		PartSize:    10 * utils.MB,
-	}, nil
+    // 创建一个延迟分配内存的 RangeReadCloser
+    rrc := &model.RangeReadCloser{
+        RangeReader: func(ctx context.Context, httpRange filestore.Range) (io.ReadCloser, error) {
+            // 在实际需要读取时才分配内存
+            req, err := http.NewRequestWithContext(ctx, "GET", resp.Data[0].DownloadUrl, nil)
+            if err != nil {
+                return nil, err
+            }
+            req.Header.Set("Cookie", d.Cookie)
+            req.Header.Set("Referer", d.conf.referer)
+            req.Header.Set("User-Agent", ua)
+            if httpRange.Length > 0 {
+                req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", httpRange.Start, httpRange.Start+httpRange.Length-1))
+            }
+            resp, err := http.DefaultClient.Do(req)
+            if err != nil {
+                return nil, err
+            }
+            return resp.Body, nil
+        },
+    }
+
+    return &model.Link{
+        URL: resp.Data[0].DownloadUrl,
+        Header: http.Header{
+            "Cookie":     []string{d.Cookie},
+            "Referer":    []string{d.conf.referer},
+            "User-Agent": []string{ua},
+        },
+        RangeReadCloser: rrc,
+        Concurrency: 3,
+        PartSize:    10 * utils.MB, // 保持原有的分片大小，但只在需要时分配
+    }, nil
 }
 
 func (d *QuarkOrUC) MakeDir(ctx context.Context, parentDir model.Obj, dirName string) error {
