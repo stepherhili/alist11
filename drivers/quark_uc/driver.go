@@ -68,8 +68,10 @@ func (d *QuarkOrUC) Link(ctx context.Context, file model.Obj, args model.LinkArg
 		return nil, err
 	}
 
+	// 创建一个延迟分配内存的 RangeReadCloser
 	rrc := &model.RangeReadCloser{
 		RangeReader: func(ctx context.Context, httpRange http_range.Range) (io.ReadCloser, error) {
+			// 在实际需要读取时才分配内存
 			req, err := http.NewRequestWithContext(ctx, "GET", resp.Data[0].DownloadUrl, nil)
 			if err != nil {
 				return nil, err
@@ -88,7 +90,8 @@ func (d *QuarkOrUC) Link(ctx context.Context, file model.Obj, args model.LinkArg
 		},
 	}
 
-	return &model.Link{
+	// 创建一个延迟初始化的 Link
+	link := &model.Link{
 		URL: resp.Data[0].DownloadUrl,
 		Header: http.Header{
 			"Cookie":     []string{d.Cookie},
@@ -97,8 +100,40 @@ func (d *QuarkOrUC) Link(ctx context.Context, file model.Obj, args model.LinkArg
 		},
 		RangeReadCloser: rrc,
 		Concurrency:     3,
-		PartSize:        10 * utils.MB,
-	}, nil
+		PartSize:        0, // 设置为 0，让系统自动管理内存分配
+	}
+
+	// 添加一个延迟初始化的机制
+	link.RangeReadCloser = &model.RangeReadCloser{
+		RangeReader: func(ctx context.Context, httpRange http_range.Range) (io.ReadCloser, error) {
+			// 在实际开始下载时才分配内存
+			if httpRange.Length > 0 {
+				// 根据实际需要的大小分配内存
+				buf := make([]byte, httpRange.Length)
+				req, err := http.NewRequestWithContext(ctx, "GET", resp.Data[0].DownloadUrl, nil)
+				if err != nil {
+					return nil, err
+				}
+				req.Header.Set("Cookie", d.Cookie)
+				req.Header.Set("Referer", d.conf.referer)
+				req.Header.Set("User-Agent", ua)
+				req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", httpRange.Start, httpRange.Start+httpRange.Length-1))
+				resp, err := http.DefaultClient.Do(req)
+				if err != nil {
+					return nil, err
+				}
+				_, err = io.ReadFull(resp.Body, buf)
+				if err != nil {
+					resp.Body.Close()
+					return nil, err
+				}
+				return io.NopCloser(bytes.NewReader(buf)), nil
+			}
+			return nil, fmt.Errorf("invalid range length")
+		},
+	}
+
+	return link, nil
 }
 
 func (d *QuarkOrUC) MakeDir(ctx context.Context, parentDir model.Obj, dirName string) error {
