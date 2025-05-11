@@ -70,7 +70,7 @@ func (d *QuarkOrUC) Link(ctx context.Context, file model.Obj, args model.LinkArg
 	}
 
 	// 创建 RangeReadCloser 实现
-	rangeReader := &RangeReadCloser{
+	rangeReader := &model.RangeReadCloser{
 		RangeReader: func(ctx context.Context, httpRange http_range.Range) (io.ReadCloser, error) {
 			req, err := http.NewRequestWithContext(ctx, "GET", resp.Data[0].DownloadUrl, nil)
 			if err != nil {
