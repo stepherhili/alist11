@@ -7,6 +7,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"io"
+	"fmt"
 	"net/http"
 	"time"
 
