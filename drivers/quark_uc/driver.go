@@ -6,6 +6,7 @@ import (
 	"crypto/md5"
 	"crypto/sha1"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -72,7 +73,6 @@ func (d *QuarkOrUC) Link(ctx context.Context, file model.Obj, args model.LinkArg
 	}
 
 	u := resp.Data[0].DownloadUrl
-	start, end := int64(0), file.GetSize()
 	link := model.Link{
 		Header: http.Header{},
 	}
@@ -81,7 +81,7 @@ func (d *QuarkOrUC) Link(ctx context.Context, file model.Obj, args model.LinkArg
 		if err != nil {
 			return nil, err
 		}
-		start, end = parseRange[0].Start, parseRange[0].Start+parseRange[0].Length
+		start, end := parseRange[0].Start, parseRange[0].Start+parseRange[0].Length
 		link.Header.Set("Content-Range", parseRange[0].ContentRange(file.GetSize()))
 		link.Header.Set("Content-Length", strconv.FormatInt(parseRange[0].Length, 10))
 	} else {
@@ -287,6 +287,12 @@ type DownloadTaskManager struct {
 	maxConcurrent int
 }
 
+type DownloadTask struct {
+	URL      string
+	FilePath string
+	Error    error
+}
+
 func NewDownloadTaskManager(maxConcurrent int) *DownloadTaskManager {
 	return &DownloadTaskManager{
 		queue: make(chan *DownloadTask, 100),  // 限制队列长度
@@ -300,6 +306,6 @@ func (m *DownloadTaskManager) AddTask(task *DownloadTask) {
 		// 任务已加入队列
 	default:
 		// 队列已满，拒绝新任务
-		task.SetError(errors.New("下载队列已满"))
+		task.Error = errors.New("下载队列已满")
 	}
 }
