@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"time"
@@ -96,3 +97,23 @@ func (r *RangeReadCloser) RangeRead(ctx context.Context, httpRange http_range.Ra
 
 // type WriterFunc func(w io.Writer) error
 type RangeReaderFunc func(ctx context.Context, httpRange http_range.Range) (io.ReadCloser, error)
+
+func NewRangeReadCloser(url string) *RangeReadCloser {
+	rrc := &RangeReadCloser{
+		RangeReader: func(ctx context.Context, httpRange http_range.Range) (io.ReadCloser, error) {
+			req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+			if err != nil {
+				return nil, err
+			}
+			if httpRange.Length > 0 {
+				req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", httpRange.Start, httpRange.Start+httpRange.Length-1))
+			}
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return nil, err
+			}
+			return resp.Body, nil
+		},
+	}
+	return rrc
+}
