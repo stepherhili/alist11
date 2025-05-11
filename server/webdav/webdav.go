@@ -628,7 +628,25 @@ func (h *Handler) handlePropfind(w http.ResponseWriter, r *http.Request) (status
 	fi, err := fs.Get(ctx, reqPath, &fs.GetArgs{})
 	if err != nil {
 		if errs.IsNotFoundError(err) {
-			return http.StatusNotFound, err
+			mw := multistatusWriter{w: w}
+			href := path.Join(h.Prefix, strings.TrimPrefix(reqPath, user.BasePath))
+			if href != "/" {
+				href += "/"
+			}
+			pstat := Propstat{Status: http.StatusOK}
+			pstat.Props = append(pstat.Props, Property{
+				XMLName: xml.Name{Space: "DAV:", Local: "resourcetype"},
+				InnerXML: []byte(`<D:collection xmlns:D="DAV:"/>`),
+			})
+			err = mw.write(makePropstatResponse(href, []Propstat{pstat}))
+			if err != nil {
+				return http.StatusInternalServerError, err
+			}
+			err = mw.close()
+			if err != nil {
+				return http.StatusInternalServerError, err
+			}
+			return 0, nil
 		}
 		return http.StatusMethodNotAllowed, err
 	}
