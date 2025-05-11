@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/alist-org/alist/v3/drivers/base"
@@ -68,39 +69,61 @@ func (d *QuarkOrUC) Link(ctx context.Context, file model.Obj, args model.LinkArg
 		return nil, err
 	}
 
-	// 创建一个完全流式的 RangeReadCloser
-	rrc := &model.RangeReadCloser{
-		RangeReader: func(ctx context.Context, httpRange http_range.Range) (io.ReadCloser, error) {
-			req, err := http.NewRequestWithContext(ctx, "GET", resp.Data[0].DownloadUrl, nil)
-			if err != nil {
-				return nil, err
-			}
-			req.Header.Set("Cookie", d.Cookie)
-			req.Header.Set("Referer", d.conf.referer)
-			req.Header.Set("User-Agent", ua)
-			if httpRange.Length > 0 {
-				req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", httpRange.Start, httpRange.Start+httpRange.Length-1))
-			}
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				return nil, err
-			}
-			// 直接返回响应体，不进行内存缓存
-			return resp.Body, nil
-		},
+	u := resp.Data[0].DownloadUrl
+	start, end := int64(0), file.GetSize()
+	link := model.Link{
+		Header: http.Header{},
 	}
-
-	return &model.Link{
-		URL: resp.Data[0].DownloadUrl,
-		Header: http.Header{
-			"Cookie":     []string{d.Cookie},
-			"Referer":    []string{d.conf.referer},
-			"User-Agent": []string{ua},
-		},
-		RangeReadCloser: rrc,
-		Concurrency:     3,
-		PartSize:        0, // 设置为 0，完全流式传输
-	}, nil
+	if rg := args.Header.Get("Range"); rg != "" {
+		parseRange, err := http_range.ParseRange(rg, file.GetSize())
+		if err != nil {
+			return nil, err
+		}
+		start, end = parseRange[0].Start, parseRange[0].Start+parseRange[0].Length
+		link.Header.Set("Content-Range", parseRange[0].ContentRange(file.GetSize()))
+		link.Header.Set("Content-Length", strconv.FormatInt(parseRange[0].Length, 10))
+		link.Status = http.StatusPartialContent
+	} else {
+		link.Header.Set("Content-Length", strconv.FormatInt(file.GetSize(), 10))
+		link.Status = http.StatusOK
+	}
+	link.Writer = func(w io.Writer) error {
+		// request 10 MB at a time
+		chunkSize := int64(10 * 1024 * 1024)
+		for start < end {
+			_end := start + chunkSize
+			if _end > end {
+				_end = end
+			}
+			_range := "bytes=" + strconv.FormatInt(start, 10) + "-" + strconv.FormatInt(_end-1, 10)
+			start = _end
+			err = func() error {
+				req, err := http.NewRequest(http.MethodGet, u, nil)
+				if err != nil {
+					return err
+				}
+				req.Header.Set("Range", _range)
+				req.Header.Set("User-Agent", ua)
+				req.Header.Set("Cookie", d.Cookie)
+				req.Header.Set("Referer", d.conf.referer)
+				resp, err := base.HttpClient.Do(req)
+				if err != nil {
+					return err
+				}
+				defer resp.Body.Close()
+				if resp.StatusCode != http.StatusPartialContent {
+					return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+				}
+				_, err = io.Copy(w, resp.Body)
+				return err
+			}()
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return &link, nil
 }
 
 func (d *QuarkOrUC) MakeDir(ctx context.Context, parentDir model.Obj, dirName string) error {
