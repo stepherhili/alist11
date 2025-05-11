@@ -6,18 +6,14 @@ import (
 	"crypto/md5"
 	"crypto/sha1"
 	"encoding/hex"
-	"errors"
-	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/alist-org/alist/v3/drivers/base"
 	"github.com/alist-org/alist/v3/internal/driver"
 	"github.com/alist-org/alist/v3/internal/errs"
 	"github.com/alist-org/alist/v3/internal/model"
-	"github.com/alist-org/alist/v3/pkg/http_range"
 	"github.com/alist-org/alist/v3/pkg/utils"
 	"github.com/go-resty/resty/v2"
 	log "github.com/sirupsen/logrus"
@@ -64,75 +60,23 @@ func (d *QuarkOrUC) Link(ctx context.Context, file model.Obj, args model.LinkArg
 	var resp DownResp
 	ua := d.conf.ua
 	_, err := d.request("/file/download", http.MethodPost, func(req *resty.Request) {
-		req.SetHeader("User-Agent", ua).SetBody(data)
+		req.SetHeader("User-Agent", ua).
+			SetBody(data)
 	}, &resp)
 	if err != nil {
 		return nil, err
 	}
 
-	u := resp.Data[0].DownloadUrl
-	link := model.Link{
-		Header: http.Header{},
-	}
-	if rg := args.Header.Get("Range"); rg != "" {
-		parseRange, err := http_range.ParseRange(rg, file.GetSize())
-		if err != nil {
-			return nil, err
-		}
-		link.Header.Set("Content-Range", parseRange[0].ContentRange(file.GetSize()))
-		link.Header.Set("Content-Length", strconv.FormatInt(parseRange[0].Length, 10))
-	} else {
-		link.Header.Set("Content-Length", strconv.FormatInt(file.GetSize(), 10))
-	}
-	
-	link.RangeReadCloser = &model.RangeReadCloser{
-		RangeReader: func(ctx context.Context, httpRange http_range.Range) (io.ReadCloser, error) {
-			// request 10 MB at a time
-			chunkSize := int64(10 * 1024 * 1024)
-			start := httpRange.Start
-			end := httpRange.Start + httpRange.Length
-			
-			pipeReader, pipeWriter := io.Pipe()
-			go func() {
-				defer pipeWriter.Close()
-				for start < end {
-					_end := start + chunkSize
-					if _end > end {
-						_end = end
-					}
-					_range := "bytes=" + strconv.FormatInt(start, 10) + "-" + strconv.FormatInt(_end-1, 10)
-					start = _end
-					
-					req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-					if err != nil {
-						pipeWriter.CloseWithError(err)
-						return
-					}
-					req.Header.Set("Range", _range)
-					req.Header.Set("User-Agent", ua)
-					req.Header.Set("Cookie", d.Cookie)
-					req.Header.Set("Referer", d.conf.referer)
-					resp, err := base.HttpClient.Do(req)
-					if err != nil {
-						pipeWriter.CloseWithError(err)
-						return
-					}
-					if resp.StatusCode != http.StatusPartialContent {
-						pipeWriter.CloseWithError(fmt.Errorf("unexpected status code: %d", resp.StatusCode))
-						return
-					}
-					_, err = io.Copy(pipeWriter, resp.Body)
-					resp.Body.Close()
-					if err != nil {
-						pipeWriter.CloseWithError(err)
-						return
-					}
-				}
-			}()
-			return pipeReader, nil
+	return &model.Link{
+		URL: resp.Data[0].DownloadUrl,
+		Header: http.Header{
+			"Cookie":     []string{d.Cookie},
+			"Referer":    []string{d.conf.referer},
+			"User-Agent": []string{ua},
 		},
-	}
-	return &link, nil
+		Concurrency: 3,
+		PartSize:    0 * utils.MB,
+	}, nil
 }
 
 func (d *QuarkOrUC) MakeDir(ctx context.Context, parentDir model.Obj, dirName string) error {
@@ -284,12 +228,6 @@ type DownloadTaskManager struct {
 	maxConcurrent int
 }
 
-type DownloadTask struct {
-	URL      string
-	FilePath string
-	Error    error
-}
-
 func NewDownloadTaskManager(maxConcurrent int) *DownloadTaskManager {
 	return &DownloadTaskManager{
 		queue: make(chan *DownloadTask, 100),  // 限制队列长度
@@ -303,6 +241,6 @@ func (m *DownloadTaskManager) AddTask(task *DownloadTask) {
 		// 任务已加入队列
 	default:
 		// 队列已满，拒绝新任务
-		task.Error = errors.New("下载队列已满")
+		task.SetError(errors.New("下载队列已满"))
 	}
 }
