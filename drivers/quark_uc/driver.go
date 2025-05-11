@@ -17,6 +17,7 @@ import (
 	"github.com/alist-org/alist/v3/internal/model"
 	"github.com/alist-org/alist/v3/pkg/utils"
 	"github.com/go-resty/resty/v2"
+	"github.com/alist-org/alist/v3/pkg/http_range"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -70,8 +71,7 @@ func (d *QuarkOrUC) Link(ctx context.Context, file model.Obj, args model.LinkArg
 
     // 创建一个延迟分配内存的 RangeReadCloser
     rrc := &model.RangeReadCloser{
-        RangeReader: func(ctx context.Context, httpRange filestore.Range) (io.ReadCloser, error) {
-            // 在实际需要读取时才分配内存
+        RangeReader: func(ctx context.Context, httpRange http_range.Range) (io.ReadCloser, error) {
             req, err := http.NewRequestWithContext(ctx, "GET", resp.Data[0].DownloadUrl, nil)
             if err != nil {
                 return nil, err
@@ -89,6 +89,8 @@ func (d *QuarkOrUC) Link(ctx context.Context, file model.Obj, args model.LinkArg
             return resp.Body, nil
         },
     }
+
+
 
     return &model.Link{
         URL: resp.Data[0].DownloadUrl,
