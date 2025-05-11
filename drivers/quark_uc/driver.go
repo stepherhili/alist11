@@ -242,26 +242,3 @@ func (d *QuarkOrUC) Put(ctx context.Context, dstDir model.Obj, stream model.File
 }
 
 var _ driver.Driver = (*QuarkOrUC)(nil)
-
-// 添加任务队列管理器
-type DownloadTaskManager struct {
-	queue    chan *DownloadTask
-	maxConcurrent int
-}
-
-func NewDownloadTaskManager(maxConcurrent int) *DownloadTaskManager {
-	return &DownloadTaskManager{
-		queue: make(chan *DownloadTask, 100),  // 限制队列长度
-		maxConcurrent: maxConcurrent,
-	}
-}
-
-func (m *DownloadTaskManager) AddTask(task *DownloadTask) {
-	select {
-	case m.queue <- task:
-		// 任务已加入队列
-	default:
-		// 队列已满，拒绝新任务
-		task.SetError(errors.New("下载队列已满"))
-	}
-}
