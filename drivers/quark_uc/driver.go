@@ -6,6 +6,7 @@ import (
 	"crypto/md5"
 	"crypto/sha1"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"net/http"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/alist-org/alist/v3/pkg/utils"
 	"github.com/go-resty/resty/v2"
 	log "github.com/sirupsen/logrus"
+	"github.com/alist-org/alist/v3/pkg/http_range"
 )
 
 type QuarkOrUC struct {
@@ -67,6 +69,30 @@ func (d *QuarkOrUC) Link(ctx context.Context, file model.Obj, args model.LinkArg
 		return nil, err
 	}
 
+	// 创建 RangeReadCloser 实现
+	rangeReader := &RangeReadCloser{
+		RangeReader: func(ctx context.Context, httpRange http_range.Range) (io.ReadCloser, error) {
+			req, err := http.NewRequestWithContext(ctx, "GET", resp.Data[0].DownloadUrl, nil)
+			if err != nil {
+				return nil, err
+			}
+			req.Header.Set("Cookie", d.Cookie)
+			req.Header.Set("Referer", d.conf.referer)
+			req.Header.Set("User-Agent", ua)
+			if httpRange.Length > 0 {
+				req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", httpRange.Start, httpRange.Start+httpRange.Length-1))
+			} else if httpRange.Start > 0 {
+				req.Header.Set("Range", fmt.Sprintf("bytes=%d-", httpRange.Start))
+			}
+			
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return nil, err
+			}
+			return resp.Body, nil
+		},
+	}
+
 	return &model.Link{
 		URL: resp.Data[0].DownloadUrl,
 		Header: http.Header{
@@ -74,8 +100,9 @@ func (d *QuarkOrUC) Link(ctx context.Context, file model.Obj, args model.LinkArg
 			"Referer":    []string{d.conf.referer},
 			"User-Agent": []string{ua},
 		},
-		Concurrency: 3,
-		PartSize:    0 * utils.MB,
+		RangeReadCloser: rangeReader,
+		Concurrency: 1,  // 设置为1避免并发下载
+		PartSize: 0,     // 设置为0表示不分片
 	}, nil
 }
 
@@ -222,25 +249,3 @@ func (d *QuarkOrUC) Put(ctx context.Context, dstDir model.Obj, stream model.File
 
 var _ driver.Driver = (*QuarkOrUC)(nil)
 
-// 添加任务队列管理器
-type DownloadTaskManager struct {
-	queue    chan *DownloadTask
-	maxConcurrent int
-}
-
-func NewDownloadTaskManager(maxConcurrent int) *DownloadTaskManager {
-	return &DownloadTaskManager{
-		queue: make(chan *DownloadTask, 100),  // 限制队列长度
-		maxConcurrent: maxConcurrent,
-	}
-}
-
-func (m *DownloadTaskManager) AddTask(task *DownloadTask) {
-	select {
-	case m.queue <- task:
-		// 任务已加入队列
-	default:
-		// 队列已满，拒绝新任务
-		task.SetError(errors.New("下载队列已满"))
-	}
-}
