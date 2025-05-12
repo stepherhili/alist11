@@ -3,10 +3,8 @@ package quark
 import (
 	"bytes"
 	"context"
-	"crypto/md5"
-	"crypto/sha1"
 	"encoding/hex"
-	"fmt"
+	"hash"
 	"io"
 	"net/http"
 	"time"
@@ -15,10 +13,10 @@ import (
 	"github.com/alist-org/alist/v3/internal/driver"
 	"github.com/alist-org/alist/v3/internal/errs"
 	"github.com/alist-org/alist/v3/internal/model"
+	streamPkg "github.com/alist-org/alist/v3/internal/stream"
 	"github.com/alist-org/alist/v3/pkg/utils"
 	"github.com/go-resty/resty/v2"
 	log "github.com/sirupsen/logrus"
-	"github.com/alist-org/alist/v3/pkg/http_range"
 )
 
 type QuarkOrUC struct {
@@ -69,30 +67,6 @@ func (d *QuarkOrUC) Link(ctx context.Context, file model.Obj, args model.LinkArg
 		return nil, err
 	}
 
-	// 创建 RangeReadCloser 实现
-	rangeReader := &model.RangeReadCloser{
-		RangeReader: func(ctx context.Context, httpRange http_range.Range) (io.ReadCloser, error) {
-			req, err := http.NewRequestWithContext(ctx, "GET", resp.Data[0].DownloadUrl, nil)
-			if err != nil {
-				return nil, err
-			}
-			req.Header.Set("Cookie", d.Cookie)
-			req.Header.Set("Referer", d.conf.referer)
-			req.Header.Set("User-Agent", ua)
-			if httpRange.Length > 0 {
-				req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", httpRange.Start, httpRange.Start+httpRange.Length-1))
-			} else if httpRange.Start > 0 {
-				req.Header.Set("Range", fmt.Sprintf("bytes=%d-", httpRange.Start))
-			}
-			
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				return nil, err
-			}
-			return resp.Body, nil
-		},
-	}
-
 	return &model.Link{
 		URL: resp.Data[0].DownloadUrl,
 		Header: http.Header{
@@ -100,9 +74,8 @@ func (d *QuarkOrUC) Link(ctx context.Context, file model.Obj, args model.LinkArg
 			"Referer":    []string{d.conf.referer},
 			"User-Agent": []string{ua},
 		},
-		RangeReadCloser: rangeReader,
-		Concurrency: 1,  // 设置为1避免并发下载
-		PartSize: 0,     // 设置为0表示不分片
+		Concurrency: 3,
+		PartSize:    10 * utils.MB,
 	}, nil
 }
 
@@ -163,33 +136,33 @@ func (d *QuarkOrUC) Remove(ctx context.Context, obj model.Obj) error {
 }
 
 func (d *QuarkOrUC) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) error {
-	tempFile, err := stream.CacheFullInTempFile()
-	if err != nil {
-		return err
+	md5Str, sha1Str := stream.GetHash().GetHash(utils.MD5), stream.GetHash().GetHash(utils.SHA1)
+	var (
+		md5  hash.Hash
+		sha1 hash.Hash
+	)
+	writers := []io.Writer{}
+	if len(md5Str) != utils.MD5.Width {
+		md5 = utils.MD5.NewFunc()
+		writers = append(writers, md5)
 	}
-	defer func() {
-		_ = tempFile.Close()
-	}()
-	m := md5.New()
-	_, err = utils.CopyWithBuffer(m, tempFile)
-	if err != nil {
-		return err
+	if len(sha1Str) != utils.SHA1.Width {
+		sha1 = utils.SHA1.NewFunc()
+		writers = append(writers, sha1)
 	}
-	_, err = tempFile.Seek(0, io.SeekStart)
-	if err != nil {
-		return err
+
+	if len(writers) > 0 {
+		_, err := streamPkg.CacheFullInTempFileAndWriter(stream, io.MultiWriter(writers...))
+		if err != nil {
+			return err
+		}
+		if md5 != nil {
+			md5Str = hex.EncodeToString(md5.Sum(nil))
+		}
+		if sha1 != nil {
+			sha1Str = hex.EncodeToString(sha1.Sum(nil))
+		}
 	}
-	md5Str := hex.EncodeToString(m.Sum(nil))
-	s := sha1.New()
-	_, err = utils.CopyWithBuffer(s, tempFile)
-	if err != nil {
-		return err
-	}
-	_, err = tempFile.Seek(0, io.SeekStart)
-	if err != nil {
-		return err
-	}
-	sha1Str := hex.EncodeToString(s.Sum(nil))
 	// pre
 	pre, err := d.upPre(stream, dstDir.GetID())
 	if err != nil {
@@ -205,27 +178,28 @@ func (d *QuarkOrUC) Put(ctx context.Context, dstDir model.Obj, stream model.File
 		return nil
 	}
 	// part up
-	partSize := pre.Metadata.PartSize
-	var part []byte
-	md5s := make([]string, 0)
-	defaultBytes := make([]byte, partSize)
 	total := stream.GetSize()
 	left := total
+	partSize := int64(pre.Metadata.PartSize)
+	part := make([]byte, partSize)
+	count := int(total / partSize)
+	if total%partSize > 0 {
+		count++
+	}
+	md5s := make([]string, 0, count)
 	partNumber := 1
 	for left > 0 {
 		if utils.IsCanceled(ctx) {
 			return ctx.Err()
 		}
-		if left > int64(partSize) {
-			part = defaultBytes
-		} else {
-			part = make([]byte, left)
+		if left < partSize {
+			part = part[:left]
 		}
-		_, err := io.ReadFull(tempFile, part)
+		n, err := io.ReadFull(stream, part)
 		if err != nil {
 			return err
 		}
-		left -= int64(len(part))
+		left -= int64(n)
 		log.Debugf("left: %d", left)
 		reader := driver.NewLimitedUploadStream(ctx, bytes.NewReader(part))
 		m, err := d.upPart(ctx, pre, stream.GetMimetype(), partNumber, reader)
@@ -248,4 +222,3 @@ func (d *QuarkOrUC) Put(ctx context.Context, dstDir model.Obj, stream model.File
 }
 
 var _ driver.Driver = (*QuarkOrUC)(nil)
-
