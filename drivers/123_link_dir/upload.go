@@ -2,6 +2,7 @@ package _123_open
 
 import (
 	"context"
+	"fmt"
 	"github.com/alist-org/alist/v3/drivers/base"
 	"github.com/alist-org/alist/v3/internal/driver"
 	"github.com/alist-org/alist/v3/internal/model"
@@ -11,10 +12,33 @@ import (
 	"github.com/avast/retry-go"
 	"github.com/go-resty/resty/v2"
 	"net/http"
+	"regexp"
+	"strings"
 	"time"
 )
 
+var (
+	invalidFileNameChars = regexp.MustCompile(`[\\/:*?|><]`)
+)
+
+func validateFileName(filename string) error {
+	if len(filename) > 255 {
+		return errors.New("文件名长度不能超过255个字符")
+	}
+	if strings.TrimSpace(filename) == "" {
+		return errors.New("文件名不能全部是空格")
+	}
+	if invalidFileNameChars.MatchString(filename) {
+		return errors.New("文件名不能包含以下字符: \\/:*?|><")
+	}
+	return nil
+}
+
 func (d *Open123) create(parentFileID int64, filename string, etag string, size int64, duplicate int, containDir bool) (*UploadCreateResp, error) {
+	if err := validateFileName(filename); err != nil {
+		return nil, err
+	}
+	
 	var resp UploadCreateResp
 	_, err := d.Request(UploadCreate, http.MethodPost, func(req *resty.Request) {
 		req.SetBody(base.Json{
@@ -73,14 +97,38 @@ func (d *Open123) async(preuploadID string) (*UploadAsyncResp, error) {
 	return &resp, nil
 }
 
+func (d *Open123) listParts(preuploadID string) (*UploadPartsResp, error) {
+	var resp UploadPartsResp
+	_, err := d.Request(UploadParts, http.MethodPost, func(req *resty.Request) {
+		req.SetBody(base.Json{
+			"preuploadID": preuploadID,
+		})
+	}, &resp)
+	if err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
 func (d *Open123) Upload(ctx context.Context, file model.FileStreamer, createResp *UploadCreateResp, up driver.UpdateProgress) error {
 	size := file.GetSize()
 	chunkSize := createResp.Data.SliceSize
 	uploadNums := (size + chunkSize - 1) / chunkSize
+	
+	// 如果文件大小大于分片大小,先获取已上传的分片列表
+	if size > chunkSize {
+		partsResp, err := d.listParts(createResp.Data.PreuploadID)
+		if err != nil {
+			return err
+		}
+		// TODO: 可以在这里比对已上传的分片,实现断点续传
+	}
+
 	threadG, uploadCtx := errgroup.NewGroupWithContext(ctx, d.UploadThread,
 		retry.Attempts(3),
 		retry.Delay(time.Second),
 		retry.DelayType(retry.BackOffDelay))
+	
 	for partIndex := int64(0); partIndex < uploadNums; partIndex++ {
 		if utils.IsCanceled(uploadCtx) {
 			break
@@ -89,36 +137,55 @@ func (d *Open123) Upload(ctx context.Context, file model.FileStreamer, createRes
 		partIndex := partIndex
 		partNumber := partIndex + 1 // 分片号从1开始
 		threadG.Go(func(ctx context.Context) error {
-			uploadPartUrl, err := d.url(createResp.Data.PreuploadID, partNumber)
-			if err != nil {
-				return err
-			}
+			var uploadErr error
+			err := retry.Do(
+				func() error {
+					uploadPartUrl, err := d.url(createResp.Data.PreuploadID, partNumber)
+					if err != nil {
+						return err
+					}
 
-			offset := partIndex * chunkSize
-			size := min(chunkSize, size-offset)
-			limitedReader, err := file.RangeRead(http_range.Range{
-				Start:  offset,
-				Length: size})
-			if err != nil {
-				return err
-			}
+					offset := partIndex * chunkSize
+					size := min(chunkSize, size-offset)
+					limitedReader, err := file.RangeRead(http_range.Range{
+						Start:  offset,
+						Length: size})
+					if err != nil {
+						return err
+					}
 
-			req, err := http.NewRequestWithContext(ctx, "PUT", uploadPartUrl, limitedReader)
-			if err != nil {
-				return err
-			}
-			req = req.WithContext(ctx)
-			req.ContentLength = size
+					req, err := http.NewRequestWithContext(ctx, "PUT", uploadPartUrl, limitedReader)
+					if err != nil {
+						return err
+					}
+					req = req.WithContext(ctx)
+					req.ContentLength = size
 
-			res, err := base.HttpClient.Do(req)
-			if err != nil {
-				return err
-			}
-			_ = res.Body.Close()
+					res, err := base.HttpClient.Do(req)
+					if err != nil {
+						return err
+					}
+					defer res.Body.Close()
+					
+					if res.StatusCode != http.StatusOK {
+						return fmt.Errorf("upload part failed with status: %d", res.StatusCode)
+					}
 
-			progress := 10.0 + 85.0*float64(threadG.Success()+1)/float64(uploadNums)
-			up(progress)
-			return nil
+					progress := 10.0 + 85.0*float64(threadG.Success()+1)/float64(uploadNums)
+					up(progress)
+					return nil
+				},
+				retry.Attempts(3),
+				retry.Delay(time.Second),
+				retry.DelayType(retry.BackOffDelay),
+				retry.OnRetry(func(n uint, err error) {
+					log.Debugf("Retry uploading part %d: %v", partNumber, err)
+				}),
+			)
+			if err != nil {
+				uploadErr = err
+			}
+			return uploadErr
 		})
 	}
 
@@ -130,19 +197,26 @@ func (d *Open123) Upload(ctx context.Context, file model.FileStreamer, createRes
 	if err != nil {
 		return err
 	}
-	if uploadCompleteResp.Data.Async == false || uploadCompleteResp.Data.Completed {
+	if !uploadCompleteResp.Data.Async || uploadCompleteResp.Data.Completed {
+		up(100)
 		return nil
 	}
 
+	// 异步等待上传完成
 	for {
-		uploadAsyncResp, err := d.async(createResp.Data.PreuploadID)
-		if err != nil {
-			return err
-		}
-		if uploadAsyncResp.Data.Completed {
-			break
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			uploadAsyncResp, err := d.async(createResp.Data.PreuploadID)
+			if err != nil {
+				return err
+			}
+			if uploadAsyncResp.Data.Completed {
+				up(100)
+				return nil
+			}
+			time.Sleep(time.Second)
 		}
 	}
-	up(100)
-	return nil
 }
