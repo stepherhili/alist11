@@ -90,7 +90,7 @@ func (d *Open123) complete(preuploadID string) (*UploadCompleteResp, error) {
 	var resp UploadCompleteResp
 	_, err := d.Request(UploadComplete, http.MethodPost, func(req *resty.Request) {
 		req.SetBody(base.Json{
-			"preuploadID": preuploadID,
+			"preuploadId": preuploadID,
 		})
 	}, &resp)
 	if err != nil {
@@ -103,7 +103,7 @@ func (d *Open123) async(preuploadID string) (*UploadAsyncResp, error) {
 	var resp UploadAsyncResp
 	_, err := d.Request(UploadAsync, http.MethodPost, func(req *resty.Request) {
 		req.SetBody(base.Json{
-			"preuploadID": preuploadID,
+			"preuploadId": preuploadID,
 		})
 	}, &resp)
 	if err != nil {
@@ -208,10 +208,13 @@ func (d *Open123) Upload(ctx context.Context, file model.FileStreamer, createRes
 		return err
 	}
 
+	// 完成上传
 	uploadCompleteResp, err := d.complete(createResp.Data.PreuploadID)
 	if err != nil {
 		return err
 	}
+
+	// 如果不需要异步查询或已经完成
 	if !uploadCompleteResp.Data.Async || uploadCompleteResp.Data.Completed {
 		up(100)
 		return nil
