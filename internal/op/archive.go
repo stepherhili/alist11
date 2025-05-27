@@ -54,7 +54,7 @@ func GetArchiveMeta(ctx context.Context, storage driver.Driver, path string, arg
 	return meta, err
 }
 
-func getArchiveToolAndStream(ctx context.Context, storage driver.Driver, path string, args model.LinkArgs) (model.Obj, tool.Tool, *stream.SeekableStream, error) {
+func GetArchiveToolAndStream(ctx context.Context, storage driver.Driver, path string, args model.LinkArgs) (model.Obj, tool.Tool, *stream.SeekableStream, error) {
 	l, obj, err := Link(ctx, storage, path, args)
 	if err != nil {
 		return nil, nil, nil, errors.WithMessagef(err, "failed get [%s] link", path)
@@ -94,7 +94,7 @@ func getArchiveMeta(ctx context.Context, storage driver.Driver, path string, arg
 			return obj, archiveMetaProvider, err
 		}
 	}
-	obj, t, ss, err := getArchiveToolAndStream(ctx, storage, path, args.LinkArgs)
+	obj, t, ss, err := GetArchiveToolAndStream(ctx, storage, path, args.LinkArgs)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -188,7 +188,7 @@ func _listArchive(ctx context.Context, storage driver.Driver, path string, args 
 			return obj, files, err
 		}
 	}
-	obj, t, ss, err := getArchiveToolAndStream(ctx, storage, path, args.LinkArgs)
+	obj, t, ss, err := GetArchiveToolAndStream(ctx, storage, path, args.LinkArgs)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -393,7 +393,7 @@ func (s *streamWithParent) Close() error {
 }
 
 func InternalExtract(ctx context.Context, storage driver.Driver, path string, args model.ArchiveInnerArgs) (io.ReadCloser, int64, error) {
-	_, t, ss, err := getArchiveToolAndStream(ctx, storage, path, args.LinkArgs)
+	_, t, ss, err := GetArchiveToolAndStream(ctx, storage, path, args.LinkArgs)
 	if err != nil {
 		return nil, 0, err
 	}
