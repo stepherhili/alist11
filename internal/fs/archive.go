@@ -110,7 +110,7 @@ func (t *ArchiveDownloadTask) RunWithoutPushUploadTask() (*ArchiveContentUploadT
 	if err != nil {
 		return nil, err
 	}
-	err = tool.Decompress(ss, dir, t.ArchiveInnerArgs, decompressUp)
+	err = tool.Decompress(ss[0], dir, t.ArchiveInnerArgs, decompressUp)
 	if err != nil {
 		return nil, err
 	}
