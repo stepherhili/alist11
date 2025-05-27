@@ -103,7 +103,11 @@ func (d *Open123) Remove(ctx context.Context, obj model.Obj) error {
 }
 
 func (d *Open123) Put(ctx context.Context, dstDir model.Obj, file model.FileStreamer, up driver.UpdateProgress) error {
-	parentFileId, err := strconv.ParseInt(file.GetID(), 10, 64)
+	parentFileId, err := strconv.ParseInt(dstDir.GetID(), 10, 64)
+	if err != nil {
+		return err
+	}
+	
 	etag := file.GetHash().GetHash(utils.MD5)
 
 	if len(etag) < utils.MD5.Width {
