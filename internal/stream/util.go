@@ -114,19 +114,16 @@ func CacheFullInTempFileAndUpdateProgress(stream model.FileStreamer, up model.Up
 }
 
 func CacheFullInTempFileAndWriter(stream model.FileStreamer, w io.Writer) (model.File, error) {
-	if cache := stream.GetFile(); cache != nil {
-		_, err := cache.Seek(0, io.SeekStart)
-		if err == nil {
-			_, err = utils.CopyWithBuffer(w, cache)
-			if err == nil {
-				_, err = cache.Seek(0, io.SeekStart)
-			}
-		}
-		return cache, err
+	tmpF, err := stream.CacheFullInTempFile()
+	if err != nil {
+		return nil, err
 	}
-	tmpF, err := utils.CreateTempFile(io.TeeReader(stream, w), stream.GetSize())
+	_, err = tmpF.Seek(0, io.SeekStart)
 	if err == nil {
-		stream.SetTmpFile(tmpF)
+		_, err = utils.CopyWithBuffer(w, tmpF)
+		if err == nil {
+			_, err = tmpF.Seek(0, io.SeekStart)
+		}
 	}
 	return tmpF, err
 }

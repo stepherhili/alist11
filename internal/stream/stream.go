@@ -590,3 +590,47 @@ func (f *FileReadAtSeeker) Seek(offset int64, whence int) (int64, error) {
 func (f *FileReadAtSeeker) Close() error {
 	return f.ss.Close()
 }
+
+func (f *FileStream) CacheFullInTempFileAndUpdateProgress(up model.UpdateProgress) (model.File, error) {
+	if f.tmpFile != nil {
+		up(100)
+		return f.tmpFile, nil
+	}
+	if file, ok := f.Reader.(model.File); ok {
+		up(100)
+		return file, nil
+	}
+	tmpF, err := utils.CreateTempFile(&ReaderUpdatingProgress{
+		Reader:         f,
+		UpdateProgress: up,
+	}, f.GetSize())
+	if err != nil {
+		return nil, err
+	}
+	f.Add(tmpF)
+	f.tmpFile = tmpF
+	f.Reader = tmpF
+	return tmpF, nil
+}
+
+func (ss *SeekableStream) CacheFullInTempFileAndUpdateProgress(up model.UpdateProgress) (model.File, error) {
+	if ss.tmpFile != nil {
+		up(100)
+		return ss.tmpFile, nil
+	}
+	if ss.mFile != nil {
+		up(100)
+		return ss.mFile, nil
+	}
+	tmpF, err := utils.CreateTempFile(&ReaderUpdatingProgress{
+		Reader:         ss,
+		UpdateProgress: up,
+	}, ss.GetSize())
+	if err != nil {
+		return nil, err
+	}
+	ss.Add(tmpF)
+	ss.tmpFile = tmpF
+	ss.Reader = tmpF
+	return tmpF, nil
+}
