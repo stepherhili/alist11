@@ -2,6 +2,7 @@ package _123_open
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/alist-org/alist/v3/drivers/base"
 	"github.com/alist-org/alist/v3/internal/driver"
@@ -11,6 +12,7 @@ import (
 	"github.com/alist-org/alist/v3/pkg/utils"
 	"github.com/avast/retry-go"
 	"github.com/go-resty/resty/v2"
+	log "github.com/sirupsen/logrus"
 	"net/http"
 	"regexp"
 	"strings"
@@ -20,6 +22,19 @@ import (
 var (
 	invalidFileNameChars = regexp.MustCompile(`[\\/:*?|><]`)
 )
+
+// UploadPartsResp 分片列表响应
+type UploadPartsResp struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Data    struct {
+		Parts []struct {
+			PartNumber int64  `json:"partNumber"`
+			Size       int64  `json:"size"`
+			Etag       string `json:"etag"`
+		} `json:"parts"`
+	} `json:"data"`
+}
 
 func validateFileName(filename string) error {
 	if len(filename) > 255 {
@@ -117,7 +132,7 @@ func (d *Open123) Upload(ctx context.Context, file model.FileStreamer, createRes
 	
 	// 如果文件大小大于分片大小,先获取已上传的分片列表
 	if size > chunkSize {
-		partsResp, err := d.listParts(createResp.Data.PreuploadID)
+		_, err := d.listParts(createResp.Data.PreuploadID)
 		if err != nil {
 			return err
 		}

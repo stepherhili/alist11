@@ -27,6 +27,7 @@ var ( //不同情况下获取的AccessTokenQPS限制不同 如下模块化易于
 	UploadUrl      = InitApiInfo(Api+"/upload/v1/file/get_upload_url", 0)
 	UploadComplete = InitApiInfo(Api+"/upload/v1/file/upload_complete", 0)
 	UploadAsync    = InitApiInfo(Api+"/upload/v1/file/upload_async_result", 1)
+	UploadParts    = InitApiInfo(Api+"/upload/v1/file/list_upload_parts", 1)
 )
 
 func (d *Open123) Request(apiInfo *ApiInfo, method string, callback base.ReqCallback, resp interface{}) ([]byte, error) {
