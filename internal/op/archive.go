@@ -393,7 +393,7 @@ func (s *streamWithParent) Close() error {
 }
 
 func InternalExtract(ctx context.Context, storage driver.Driver, path string, args model.ArchiveInnerArgs) (io.ReadCloser, int64, error) {
-	obj, t, ss, err := GetArchiveToolAndStream(ctx, storage, path, args.LinkArgs)
+	_, t, ss, err := GetArchiveToolAndStream(ctx, storage, path, args.LinkArgs)
 	if err != nil {
 		return nil, 0, err
 	}
