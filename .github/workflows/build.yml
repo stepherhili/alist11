@@ -57,7 +57,7 @@ jobs:
 
       - name: Build
         if: matrix.target != 'windows-win7-amd64'
-        uses: pongfcnkl/cgo-actions@v1
+        uses: pongfcnkl/cgo-actions34@v2
         with:
           targets: ${{ matrix.target }}
           musl-target-format: $os-$musl-$arch
