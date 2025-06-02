@@ -57,17 +57,18 @@ jobs:
 
       - name: Build
         if: matrix.target != 'windows-win7-amd64'
-        uses: pongfcnkl/cgo-actions34@v2
-        with:
-          targets: ${{ matrix.target }}
-          musl-target-format: $os-$musl-$arch
-          out-dir: build
-          x-flags: |
-            github.com/alist-org/alist/v3/internal/conf.BuiltAt=$built_at
-            github.com/alist-org/alist/v3/internal/conf.GitAuthor=Xhofe
-            github.com/alist-org/alist/v3/internal/conf.GitCommit=$git_commit
-            github.com/alist-org/alist/v3/internal/conf.Version=$tag
-            github.com/alist-org/alist/v3/internal/conf.WebVersion=dev
+        run: |
+          export BASE="https://download.wireguard.com/qemu-test/toolchains/20211123/"
+          if [[ ${{ matrix.target }} == *"musl"* ]]; then
+            if [[ ${{ matrix.target }} == *"arm"* ]]; then
+              curl -L -o musl.tgz "${BASE}arm-linux-musleabihf-cross.tgz"
+            else
+              curl -L -o musl.tgz "${BASE}x86_64-linux-musl-cross.tgz"
+            fi
+            sudo tar xf musl.tgz --strip-components 1 -C /usr/local
+            rm -f musl.tgz
+          fi
+          bash build.sh release
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
