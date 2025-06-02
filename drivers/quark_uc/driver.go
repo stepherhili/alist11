@@ -6,6 +6,7 @@ import (
 	"crypto/md5"
 	"crypto/sha1"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"net/http"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/alist-org/alist/v3/pkg/utils"
 	"github.com/go-resty/resty/v2"
 	log "github.com/sirupsen/logrus"
+	"github.com/alist-org/alist/v3/pkg/http_range"
 )
 
 type QuarkOrUC struct {
@@ -67,17 +69,15 @@ func (d *QuarkOrUC) Link(ctx context.Context, file model.Obj, args model.LinkArg
 		return nil, err
 	}
 
-	// 创建一个自定义的下载处理器
 	client := &http.Client{}
-	req, err := http.NewRequestWithContext(ctx, "GET", resp.Data[0].DownloadUrl, nil)
+	baseReq, err := http.NewRequestWithContext(ctx, "GET", resp.Data[0].DownloadUrl, nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Cookie", d.Cookie)
-	req.Header.Set("Referer", d.conf.referer)
-	req.Header.Set("User-Agent", ua)
+	baseReq.Header.Set("Cookie", d.Cookie)
+	baseReq.Header.Set("Referer", d.conf.referer)
+	baseReq.Header.Set("User-Agent", ua)
 
-	// 使用流式下载
 	return &model.Link{
 		URL: resp.Data[0].DownloadUrl,
 		Header: http.Header{
@@ -85,19 +85,21 @@ func (d *QuarkOrUC) Link(ctx context.Context, file model.Obj, args model.LinkArg
 			"Referer":    []string{d.conf.referer},
 			"User-Agent": []string{ua},
 		},
-		Concurrency: 1, // 设置为1以避免并发下载
-		PartSize:    0, // 设置为0表示不使用分片下载
-		Stream: func(ctx context.Context, writer io.Writer) error {
-			resp, err := client.Do(req)
-			if err != nil {
-				return err
-			}
-			defer resp.Body.Close()
-			
-			// 使用io.Copy进行流式传输
-			_, err = io.Copy(writer, resp.Body)
-			return err
+		RangeReadCloser: &model.RangeReadCloser{
+			RangeReader: func(ctx context.Context, httpRange http_range.Range) (io.ReadCloser, error) {
+				req := baseReq.Clone(ctx)
+				if httpRange.Length > 0 {
+					req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", httpRange.Start, httpRange.Start+httpRange.Length-1))
+				}
+				resp, err := client.Do(req)
+				if err != nil {
+					return nil, err
+				}
+				return resp.Body, nil
+			},
 		},
+		Concurrency: 1,
+		PartSize:    0,
 	}, nil
 }
 
