@@ -86,77 +86,21 @@ jobs:
       - name: Go mod tidy
         run: go mod tidy
         
-      - name: Install build tools
-        run: |
-          sudo snap install zig --classic --beta
-          go install github.com/crazy-max/xgo@latest
-          sudo apt-get update
-          sudo apt-get install -y upx
-          sudo ln -s $(which xgo) /usr/local/bin/xgo
-          sudo ln -s $(which zig) /usr/local/bin/zig
-          sudo ln -s $(which upx) /usr/local/bin/upx
-          export PATH=$PATH:$(go env GOPATH)/bin:/usr/local/bin
-          echo "PATH=$PATH" >> $GITHUB_ENV
-        
       - name: Setup web
         run: bash build.sh dev web
 
       - name: Build
-        run: |
-          export BASE="https://download.wireguard.com/qemu-test/toolchains/20211123/"
-          TARGET="${{ matrix.target }}"
-          case "$TARGET" in
-            *musl*)
-              if [[ "$TARGET" == *"arm"* ]]; then
-                curl -L -o musl.tgz "${BASE}arm-linux-musleabihf-cross.tgz"
-              else
-                curl -L -o musl.tgz "${BASE}x86_64-linux-musl-cross.tgz"
-              fi
-              sudo tar xf musl.tgz --strip-components 1 -C /usr/local
-              rm -f musl.tgz
-              ;;
-          esac
-          
-          # Set build environment variables
-          if [[ "$TARGET" == *"-"* ]]; then
-            GOOS="${TARGET%%-*}"
-            GOARCH="${TARGET##*-}"
-            if [[ "$TARGET" == *"arm"* ]]; then
-              GOARM="${TARGET#*-arm}"
-              GOARM="${GOARM%%-*}"
-            fi
-          else
-            GOOS="$TARGET"
-            GOARCH="amd64"
-          fi
-          
-          if [[ "$TARGET" == *"musl"* ]]; then
-            export CGO_ENABLED=1
-            if [[ "$TARGET" == *"arm"* ]]; then
-              export CC=arm-linux-musleabihf-gcc
-            else
-              export CC=x86_64-linux-musl-gcc
-            fi
-          fi
-          
-          export GOOS
-          export GOARCH
-          if [[ -n "$GOARM" ]]; then
-            export GOARM
-          fi
-          
-          echo "Building for GOOS=$GOOS GOARCH=$GOARCH${GOARM:+ GOARM=$GOARM}"
-          
-          # Build
-          go build -o "build/alist-$TARGET" -ldflags="-w -s" -tags=jsoniter .
-          
-          # Compress if needed
-          if [[ "$TARGET" == "linux-amd64" ]]; then
-            upx -9 "build/alist-$TARGET"
-          elif [[ "$TARGET" == "windows-amd64" ]]; then
-            cp "build/alist-$TARGET.exe" "build/alist-$TARGET-upx.exe"
-            upx -9 "build/alist-$TARGET-upx.exe"
-          fi
+        uses: pongfcnkl/cgo-actions@v1
+        with:
+          targets: ${{ matrix.target }}
+          musl-target-format: $os-$musl-$arch
+          out-dir: build
+          x-flags: |
+            github.com/alist-org/alist/v3/internal/conf.BuiltAt=$built_at
+            github.com/alist-org/alist/v3/internal/conf.GitAuthor=Xhofe
+            github.com/alist-org/alist/v3/internal/conf.GitCommit=$git_commit
+            github.com/alist-org/alist/v3/internal/conf.Version=$tag
+            github.com/alist-org/alist/v3/internal/conf.WebVersion=dev
 
       - name: Compress
         run: |
