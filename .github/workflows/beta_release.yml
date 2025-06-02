@@ -90,7 +90,7 @@ jobs:
         run: bash build.sh dev web
 
       - name: Build
-        uses: pongfcnkl/cgo-actions@v1
+        uses: pongfcnkl/cgo-actions34@v2
         with:
           targets: ${{ matrix.target }}
           musl-target-format: $os-$musl-$arch
