@@ -92,15 +92,17 @@ jobs:
       - name: Build
         run: |
           export BASE="https://download.wireguard.com/qemu-test/toolchains/20211123/"
-          if [[ ${{ matrix.target }} == *"musl"* ]]; then
-            if [[ ${{ matrix.target }} == *"arm"* ]]; then
-              curl -L -o musl.tgz "${BASE}arm-linux-musleabihf-cross.tgz"
-            else
-              curl -L -o musl.tgz "${BASE}x86_64-linux-musl-cross.tgz"
-            fi
-            sudo tar xf musl.tgz --strip-components 1 -C /usr/local
-            rm -f musl.tgz
-          fi
+          case "${{ matrix.target }}" in
+            *musl*)
+              if [[ "${{ matrix.target }}" == *"arm"* ]]; then
+                curl -L -o musl.tgz "${BASE}arm-linux-musleabihf-cross.tgz"
+              else
+                curl -L -o musl.tgz "${BASE}x86_64-linux-musl-cross.tgz"
+              fi
+              sudo tar xf musl.tgz --strip-components 1 -C /usr/local
+              rm -f musl.tgz
+              ;;
+          esac
           bash build.sh release
 
       - name: Compress
