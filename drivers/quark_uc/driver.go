@@ -67,6 +67,17 @@ func (d *QuarkOrUC) Link(ctx context.Context, file model.Obj, args model.LinkArg
 		return nil, err
 	}
 
+	// 创建一个自定义的下载处理器
+	client := &http.Client{}
+	req, err := http.NewRequestWithContext(ctx, "GET", resp.Data[0].DownloadUrl, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Cookie", d.Cookie)
+	req.Header.Set("Referer", d.conf.referer)
+	req.Header.Set("User-Agent", ua)
+
+	// 使用流式下载
 	return &model.Link{
 		URL: resp.Data[0].DownloadUrl,
 		Header: http.Header{
@@ -74,8 +85,19 @@ func (d *QuarkOrUC) Link(ctx context.Context, file model.Obj, args model.LinkArg
 			"Referer":    []string{d.conf.referer},
 			"User-Agent": []string{ua},
 		},
-		Concurrency: 2,
-		PartSize:    10 * utils.MB,
+		Concurrency: 1, // 设置为1以避免并发下载
+		PartSize:    0, // 设置为0表示不使用分片下载
+		Stream: func(ctx context.Context, writer io.Writer) error {
+			resp, err := client.Do(req)
+			if err != nil {
+				return err
+			}
+			defer resp.Body.Close()
+			
+			// 使用io.Copy进行流式传输
+			_, err = io.Copy(writer, resp.Body)
+			return err
+		},
 	}, nil
 }
 
