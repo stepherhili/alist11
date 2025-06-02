@@ -71,9 +71,10 @@ jobs:
         if: matrix.target != 'windows-win7-amd64'
         run: |
           export BASE="https://download.wireguard.com/qemu-test/toolchains/20211123/"
-          case "${{ matrix.target }}" in
+          TARGET="${{ matrix.target }}"
+          case "$TARGET" in
             *musl*)
-              if [[ "${{ matrix.target }}" == *"arm"* ]]; then
+              if [[ "$TARGET" == *"arm"* ]]; then
                 curl -L -o musl.tgz "${BASE}arm-linux-musleabihf-cross.tgz"
               else
                 curl -L -o musl.tgz "${BASE}x86_64-linux-musl-cross.tgz"
@@ -84,30 +85,44 @@ jobs:
           esac
           
           # Set build environment variables
-          export GOOS=${matrix.target%%-*}
-          export GOARCH=${matrix.target##*-}
-          if [[ "${{ matrix.target }}" == *"arm"* ]]; then
-            export GOARM=${matrix.target#*-arm}
-            export GOARM=${GOARM%%-*}
+          if [[ "$TARGET" == *"-"* ]]; then
+            GOOS="${TARGET%%-*}"
+            GOARCH="${TARGET##*-}"
+            if [[ "$TARGET" == *"arm"* ]]; then
+              GOARM="${TARGET#*-arm}"
+              GOARM="${GOARM%%-*}"
+            fi
+          else
+            GOOS="$TARGET"
+            GOARCH="amd64"
           fi
-          if [[ "${{ matrix.target }}" == *"musl"* ]]; then
+          
+          if [[ "$TARGET" == *"musl"* ]]; then
             export CGO_ENABLED=1
-            if [[ "${{ matrix.target }}" == *"arm"* ]]; then
+            if [[ "$TARGET" == *"arm"* ]]; then
               export CC=arm-linux-musleabihf-gcc
             else
               export CC=x86_64-linux-musl-gcc
             fi
           fi
           
+          export GOOS
+          export GOARCH
+          if [[ -n "$GOARM" ]]; then
+            export GOARM
+          fi
+          
+          echo "Building for GOOS=$GOOS GOARCH=$GOARCH${GOARM:+ GOARM=$GOARM}"
+          
           # Build
-          go build -o "build/alist-${{ matrix.target }}" -ldflags="-w -s" -tags=jsoniter .
+          go build -o "build/alist-$TARGET" -ldflags="-w -s" -tags=jsoniter .
           
           # Compress if needed
-          if [[ "${{ matrix.target }}" == "linux-amd64" ]]; then
-            upx -9 "build/alist-${{ matrix.target }}"
-          elif [[ "${{ matrix.target }}" == "windows-amd64" ]]; then
-            cp "build/alist-${{ matrix.target }}.exe" "build/alist-${{ matrix.target }}-upx.exe"
-            upx -9 "build/alist-${{ matrix.target }}-upx.exe"
+          if [[ "$TARGET" == "linux-amd64" ]]; then
+            upx -9 "build/alist-$TARGET"
+          elif [[ "$TARGET" == "windows-amd64" ]]; then
+            cp "build/alist-$TARGET.exe" "build/alist-$TARGET-upx.exe"
+            upx -9 "build/alist-$TARGET-upx.exe"
           fi
 
       - name: Upload artifact
