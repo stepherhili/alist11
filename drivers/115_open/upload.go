@@ -3,9 +3,7 @@ package _115_open
 import (
 	"context"
 	"encoding/base64"
-	"fmt"
 	"io"
-	"strings"
 	"time"
 
 	"github.com/alist-org/alist/v3/internal/driver"
@@ -77,9 +75,9 @@ func (d *Open115) isTokenExpired(tokenResp *sdk.UploadGetTokenResp) bool {
 		// 如果解析失败，保守起见认为token已过期
 		return true
 	}
-	// 在20分钟时刷新token，而不是等到快过期时
-	refreshTime := time.Now().Add(20 * time.Minute)
-	return expiration.Before(refreshTime)
+	// 在50分钟时刷新
+	expireTime := time.Now().Add(5 * time.Minute)
+	return expiration.Before(expireTime)
 }
 
 func (d *Open115) refreshUploadToken(ctx context.Context) (*sdk.UploadGetTokenResp, error) {
@@ -112,46 +110,28 @@ func (d *Open115) multpartUpload(ctx context.Context, tempF model.File, stream m
 	parts := make([]oss.UploadPart, partNum)
 	offset := int64(0)
 
-	lastTokenCheck := time.Now()
-	// 每5分钟检查一次token状态
-	tokenCheckInterval := 5 * time.Minute
-	// 记录token创建时间
-	tokenCreateTime := time.Now()
+	// 每20分钟强制刷新token
+	lastTokenRefresh := time.Now()
+	tokenRefreshInterval := 20 * time.Minute
 
 	for i := int64(1); i <= partNum; i++ {
 		if utils.IsCanceled(ctx) {
 			return ctx.Err()
 		}
 
-		// 检查是否需要刷新token
-		needRefresh := false
-		if time.Since(lastTokenCheck) > tokenCheckInterval {
-			// 如果距离上次检查超过5分钟，检查token状态
-			if d.isTokenExpired(tokenResp) {
-				needRefresh = true
-			}
-			lastTokenCheck = time.Now()
-		} else if time.Since(tokenCreateTime) > 20*time.Minute {
-			// 如果token创建时间超过20分钟，主动刷新
-			needRefresh = true
-		}
-
-		if needRefresh {
+		// 每20分钟强制刷新token
+		if time.Since(lastTokenRefresh) > tokenRefreshInterval {
 			newToken, err := d.refreshUploadToken(ctx)
 			if err != nil {
 				return err
 			}
 			tokenResp = newToken
-			tokenCreateTime = time.Now() // 更新token创建时间
+			// 使用新token创建bucket客户端，用于后续分片上传
 			bucket, err = createOSSClient(tokenResp)
 			if err != nil {
 				return err
 			}
-			// 重新初始化分片上传
-			imur, err = bucket.InitiateMultipartUpload(initResp.Object, oss.Sequential())
-			if err != nil {
-				return err
-			}
+			lastTokenRefresh = time.Now()
 		}
 
 		partSize := chunkSize
@@ -164,27 +144,6 @@ func (d *Open115) multpartUpload(ctx context.Context, tempF model.File, stream m
 			rateLimitedRd := driver.NewLimitedUploadStream(ctx, rd)
 			part, err := bucket.UploadPart(imur, rateLimitedRd, partSize, int(i))
 			if err != nil {
-				// 检查是否是token过期错误
-				if strings.Contains(err.Error(), "SecurityTokenExpired") {
-					// 立即刷新token
-					newToken, err := d.refreshUploadToken(ctx)
-					if err != nil {
-						return err
-					}
-					tokenResp = newToken
-					tokenCreateTime = time.Now() // 更新token创建时间
-					bucket, err = createOSSClient(tokenResp)
-					if err != nil {
-						return err
-					}
-					// 重新初始化分片上传
-					imur, err = bucket.InitiateMultipartUpload(initResp.Object, oss.Sequential())
-					if err != nil {
-						return err
-					}
-					// 返回特殊错误以触发重试
-					return fmt.Errorf("token expired, retry with new token")
-				}
 				return err
 			}
 			parts[i-1] = part
@@ -192,10 +151,7 @@ func (d *Open115) multpartUpload(ctx context.Context, tempF model.File, stream m
 		},
 			retry.Attempts(3),
 			retry.DelayType(retry.BackOffDelay),
-			retry.Delay(time.Second),
-			retry.If(func(err error) bool {
-				return strings.Contains(err.Error(), "token expired, retry with new token")
-			}))
+			retry.Delay(time.Second))
 		if err != nil {
 			return err
 		}
