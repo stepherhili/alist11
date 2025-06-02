@@ -42,6 +42,18 @@ jobs:
       - name: Go mod tidy
         run: go mod tidy
         
+      - name: Install build tools
+        run: |
+          sudo snap install zig --classic --beta
+          go install github.com/crazy-max/xgo@latest
+          sudo apt-get update
+          sudo apt-get install -y upx
+          sudo ln -s $(which xgo) /usr/local/bin/xgo
+          sudo ln -s $(which zig) /usr/local/bin/zig
+          sudo ln -s $(which upx) /usr/local/bin/upx
+          export PATH=$PATH:$(go env GOPATH)/bin:/usr/local/bin
+          echo "PATH=$PATH" >> $GITHUB_ENV
+        
       - name: Setup web
         run: bash build.sh dev web
       - name: Install MinGW for Win7 build
@@ -70,7 +82,33 @@ jobs:
               rm -f musl.tgz
               ;;
           esac
-          bash build.sh release
+          
+          # Set build environment variables
+          export GOOS=${matrix.target%%-*}
+          export GOARCH=${matrix.target##*-}
+          if [[ "${{ matrix.target }}" == *"arm"* ]]; then
+            export GOARM=${matrix.target#*-arm}
+            export GOARM=${GOARM%%-*}
+          fi
+          if [[ "${{ matrix.target }}" == *"musl"* ]]; then
+            export CGO_ENABLED=1
+            if [[ "${{ matrix.target }}" == *"arm"* ]]; then
+              export CC=arm-linux-musleabihf-gcc
+            else
+              export CC=x86_64-linux-musl-gcc
+            fi
+          fi
+          
+          # Build
+          go build -o "build/alist-${{ matrix.target }}" -ldflags="-w -s" -tags=jsoniter .
+          
+          # Compress if needed
+          if [[ "${{ matrix.target }}" == "linux-amd64" ]]; then
+            upx -9 "build/alist-${{ matrix.target }}"
+          elif [[ "${{ matrix.target }}" == "windows-amd64" ]]; then
+            cp "build/alist-${{ matrix.target }}.exe" "build/alist-${{ matrix.target }}-upx.exe"
+            upx -9 "build/alist-${{ matrix.target }}-upx.exe"
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
