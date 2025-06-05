@@ -846,6 +846,25 @@ func (d *Yun139) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 			if result.ResultCode != 0 {
 				return fmt.Errorf("upload failed with result code: %d, message: %s", result.ResultCode, result.Msg)
 			}
+			// 最后一个分片上传完成时，检查上传状态
+			if i == part-1 && d.isFamily() {
+				checkData := base.Json{
+					"uploadTaskID": resp.Data.UploadResult.UploadTaskID,
+					"commonAccountInfo": base.Json{
+						"account":     d.getAccount(),
+						"accountType": 1,
+					},
+				}
+				checkPathname := "/orchestration/familyCloud-rebuild/content/v1.0/getUploadTaskStatus"
+				var checkResp UploadResp
+				_, err = d.post(checkPathname, checkData, &checkResp)
+				if err != nil {
+					return err
+				}
+				if checkResp.Data.Result.ResultCode != "0" {
+					return fmt.Errorf("check upload status failed with result code: %s, message: %s", checkResp.Data.Result.ResultCode, checkResp.Data.Result.ResultDesc)
+				}
+			}
 		}
 		return nil
 	default:
