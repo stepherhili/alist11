@@ -311,7 +311,12 @@ func (d *BaiduNetdisk) Put(ctx context.Context, dstDir model.Obj, stream model.F
 			if err = sem.Acquire(ctx, 1); err != nil {
 				return err
 			}
-			defer sem.Release(1)
+			defer func() {
+				if r := recover(); r != nil {
+					sem.Release(1)
+					panic(r)
+				}
+			}()
 			params := map[string]string{
 				"method":       "upload",
 				"access_token": d.AccessToken,
@@ -323,10 +328,12 @@ func (d *BaiduNetdisk) Put(ctx context.Context, dstDir model.Obj, stream model.F
 			err := d.uploadSlice(ctx, params, stream.GetName(),
 				driver.NewLimitedUploadStream(ctx, io.NewSectionReader(cache, offset, byteSize)))
 			if err != nil {
+				sem.Release(1)
 				return err
 			}
 			up(float64(threadG.Success()) * 100 / float64(len(precreateResp.BlockList)))
 			precreateResp.BlockList[i] = -1
+			sem.Release(1)
 			return nil
 		})
 	}
