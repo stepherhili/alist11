@@ -267,7 +267,7 @@ BuildReleaseFreeBSD() {
     cgo_cc="clang --target=${CGO_ARGS[$i]} --sysroot=/opt/freebsd/${os_arch}"
     echo building for freebsd-${os_arch}
     sudo mkdir -p "/opt/freebsd/${os_arch}"
-    wget -q https://download.freebsd.org/releases/${os_arch}/14.1-RELEASE/base.txz
+    wget -q https://download.freebsd.org/releases/${os_arch}/14.3-RELEASE/base.txz
     sudo tar -xf ./base.txz -C /opt/freebsd/${os_arch}
     rm base.txz
     export GOOS=freebsd
