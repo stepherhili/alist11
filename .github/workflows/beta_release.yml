@@ -67,8 +67,6 @@ jobs:
             hash: "md5-windows-arm64"
           - target: 'android-*' #android
             hash: "md5-android"
-          - target: 'freebsd-*' #freebsd
-            hash: "md5-freebsd"
 
     name: Beta Release
     runs-on: ubuntu-latest
