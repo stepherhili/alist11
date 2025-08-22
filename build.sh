@@ -28,7 +28,7 @@ ldflags="\
 "
 
 FetchWebDev() {
-  curl -L https://codeload.github.com/alist-org/web-dist/tar.gz/refs/heads/dev -o web-dist-dev.tar.gz
+  curl -L https://codeload.github.com/pongfcnkl/web-dist/tar.gz/refs/heads/dev -o web-dist-dev.tar.gz
   tar -zxvf web-dist-dev.tar.gz
   rm -rf public/dist
   mv -f web-dist-dev/dist public
@@ -261,7 +261,7 @@ BuildReleaseFreeBSD() {
   mkdir -p "build/freebsd"
   OS_ARCHES=(amd64 arm64 i386)
   GO_ARCHES=(amd64 arm64 386)
-  CGO_ARGS=(x86_64-unknown-freebsd14.1 aarch64-unknown-freebsd14.1 i386-unknown-freebsd14.1)
+  CGO_ARGS=(x86_64-unknown-freebsd14.3 aarch64-unknown-freebsd14.3 i386-unknown-freebsd14.3)
   for i in "${!OS_ARCHES[@]}"; do
     os_arch=${OS_ARCHES[$i]}
     cgo_cc="clang --target=${CGO_ARGS[$i]} --sysroot=/opt/freebsd/${os_arch}"
