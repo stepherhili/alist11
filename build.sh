@@ -31,7 +31,8 @@ FetchWebDev() {
   curl -L https://github.com/AlistGo/alist-web/releases/download/3.45.0/dist.tar.gz -o web-dist-dev.tar.gz
   tar -zxvf web-dist-dev.tar.gz
   rm -rf public/dist
-  mv -f web-dist-dev/dist public
+  ls -l
+  mv -f dist public
   rm -rf web-dist-dev web-dist-dev.tar.gz
 }
 
